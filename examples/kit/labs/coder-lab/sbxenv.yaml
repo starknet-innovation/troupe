@@ -1,0 +1,11 @@
+# A Lab on the coder workload, without an identity: never an agent.
+schemaVersion: "1"
+name: coder-lab
+agent: coder
+
+kits:
+  - "../../kits/coder"
+
+sandboxOptions:
+  cpus: 2
+  memory: 4g

@@ -1,0 +1,35 @@
+[Unit]
+Description=Docker Sandboxes daemon (sandboxd); docker-sbx ships no unit
+Documentation=https://github.com/starknet-innovation/troupe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+# Foreground on purpose: bare `sbx daemon start` runs the daemon in-process,
+# which is exactly what a Type=simple unit wants. All microVMs live in this
+# cgroup, so this unit must never be stopped casually.
+ExecStart=/usr/bin/sbx daemon start
+# Type=simple alone reports "started" at exec, seconds before sandboxd writes its
+# pidfile and sockets, and every After=sbx-daemon.service unit would race it (a
+# guard that runs in that gap skips its agent at boot, and a skip never retries).
+# Hold the unit in "activating" until the honest probe passes, so ordering means
+# "ready", at boot and on every restart.
+ExecStartPost=@TROUPE@ guard probe --wait 75s
+TimeoutStartSec=90
+# A clean daemon exit would otherwise leave every microVM dead with nothing
+# to restart it. Always, not on-failure.
+Restart=always
+RestartSec=5
+# Every VM shim lives in this cgroup, so this one weight arbitrates the whole
+# sandbox pool against host services, which keep the default 100: under full
+# contention each host service outweighs the entire pool about 4:1; when the
+# host is idle, sandboxes still use every core. This is arbitration, not a cap.
+# Per-sandbox `cpus:` remains the boundary between sandboxes. Apply to the
+# running unit only via `systemctl set-property --runtime`; never restart this
+# unit for it.
+CPUWeight=25
+
+[Install]
+WantedBy=multi-user.target

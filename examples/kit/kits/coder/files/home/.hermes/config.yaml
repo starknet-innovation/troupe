@@ -1,0 +1,4 @@
+# Shared Hermes configuration for every agent built on this base kit.
+skills:
+  auto_load:
+    - house-rules

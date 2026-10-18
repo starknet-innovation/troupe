@@ -1,0 +1,27 @@
+# Local agent and editor state
+/.agents/
+/.claude/
+/.codex/
+.DS_Store
+*~
+*.swp
+
+# Credentials and local environment files
+.env
+.env.*
+**/.env
+**/.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.token
+**/credentials.json
+**/token.json
+**/oauth*.json
+# The example kit's agent seeds are fictional and carry no credentials; track them explicitly.
+!/examples/kit/*/files/home/.hermes/.env
+
+# Generated language and build artifacts
+__pycache__/
+*.py[cod]

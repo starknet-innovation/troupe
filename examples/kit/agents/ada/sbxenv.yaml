@@ -1,0 +1,16 @@
+schemaVersion: "1"
+name: ada
+agent: coder
+
+kits:
+  - "../../kits/coder"
+  - "."
+
+sandboxOptions:
+  cpus: 2
+  memory: 4g
+
+secrets:
+  provider:
+    command: cat /run/credentials/ada-provider
+    refresh: on-demand

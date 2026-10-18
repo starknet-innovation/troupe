@@ -1,0 +1,27 @@
+[Unit]
+Description=Hermes gateway for %i
+Documentation=https://github.com/starknet-innovation/troupe
+After=network-online.target sbx-daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+# A suspended agent (a disposable copy of it exists) is skipped, not failed.
+ExecCondition=@TROUPE@ guard check %i
+
+# Never let sbx auto-spawn an unmanaged daemon: start only when systemd's sandboxd answers.
+ExecStartPre=@TROUPE@ guard probe
+
+# The attached gateway session is also the sandbox's normal keep-alive.
+ExecStart=/usr/bin/sbx exec %i /home/agent/.local/bin/hermes gateway run --replace --external-supervisor
+# Stopping the host-side sbx client does not signal the guest process. Stop the
+# HERMES_HOME-scoped gateway explicitly and wait for its bounded clean exit.
+ExecStop=@TROUPE@ gateway stop %i
+Restart=always
+RestartSec=5
+TimeoutStopSec=90
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

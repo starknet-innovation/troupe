@@ -1,0 +1,4 @@
+# The build reads only the descriptor, its recipe and files/; the rest is the environment.
+.dockerignore
+sbxenv.yaml
+storage.env
