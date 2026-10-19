@@ -296,6 +296,41 @@ func TestReadDefaultsRefusesMalformedSizes(t *testing.T) {
 	}
 }
 
+func TestReadSettingsReadsTheKitsSettingsInOrder(t *testing.T) {
+	dir := t.TempDir()
+	if settings, err := ReadSettings(dir); err != nil || settings != nil {
+		t.Fatalf("a kit without settings.json: %v %v", settings, err)
+	}
+	os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"settings":[
+ {"env":"TEAM_NAME","prompt":"Team name","help":"Change it later in chat.","pattern":"[a-z]+"},
+ {"env":"REGION","prompt":"Region","pattern":"eu|us"}]}`), 0o644)
+	settings, err := ReadSettings(dir)
+	if err != nil || len(settings) != 2 || settings[0].Env != "TEAM_NAME" || settings[1].Pattern != "eu|us" {
+		t.Fatalf("%+v %v", settings, err)
+	}
+}
+
+func TestReadSettingsRefusesMalformedSettings(t *testing.T) {
+	for name, entry := range map[string]string{
+		"unknown field":   `{"env":"A","prompt":"A","pattern":"x","secret":true}`,
+		"lowercase env":   `{"env":"team","prompt":"A","pattern":"x"}`,
+		"a Slack setting": `{"env":"SLACK_HOME_CHANNEL","prompt":"A","pattern":"x"}`,
+		"no prompt":       `{"env":"A","prompt":" ","pattern":"x"}`,
+		"no pattern":      `{"env":"A","prompt":"A","pattern":""}`,
+		"a bad pattern":   `{"env":"A","prompt":"A","pattern":"("}`,
+		"a control":       `{"env":"A","prompt":"A\u001b[2J","pattern":"x"}`,
+		"repeated":        `{"env":"A","prompt":"A","pattern":"x"},{"env":"A","prompt":"B","pattern":"y"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"settings":[`+entry+`]}`), 0o644)
+			if _, err := ReadSettings(dir); err == nil {
+				t.Fatal("read")
+			}
+		})
+	}
+}
+
 func TestResizeRewritesOnlyTheSizes(t *testing.T) {
 	data := t.TempDir()
 	folder, err := Write(data, Agent{Name: "jane", Image: image(), Sizes: Defaults{CPUs: 4, MemoryGiB: 6, RootGiB: 50, DockerGiB: 10},

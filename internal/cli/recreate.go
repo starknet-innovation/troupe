@@ -20,8 +20,8 @@ const createHelp = `Usage:
   troupe create TYPE --name NAME [--cpu N] [--memory GiB] [--storage GiB] [--soul FILE] [--avatar PATH|URL] [--force]
 ` + createLocalUsage + `
 Creates a new agent from the latest published TYPE kit (the registry machine setting): it
-pins that kit version, asks for the agent's keys (hidden; Enter skips an optional one) and
-stores them with the TPM, writes the agent's environment under troupe's data folder, then
+pins that kit version, asks for the kit's settings (Enter skips one) and the agent's keys
+(hidden; Enter skips an optional one) and stores the keys with the TPM, writes the agent's environment under troupe's data folder, then
 creates its VM, wires its keys and starts it. --cpu, --memory and --storage (the root disk)
 change the kit's default sizes; --soul gives the agent's SOUL.md instead of the kit's default.
 The first time, it asks for a registry token that can read the kits and stores it in Docker

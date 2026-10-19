@@ -24,6 +24,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/starknet-innovation/troupe/internal/registry"
 	"github.com/starknet-innovation/troupe/internal/sbx"
@@ -266,6 +267,51 @@ func ReadDefaults(folder string) (Defaults, error) {
 		return Defaults{}, fmt.Errorf("%s: malformed defaults", filepath.Join(folder, "defaults.json"))
 	}
 	return d, nil
+}
+
+// Setting is one value a kit's settings.json asks for at create, never a key: the answer goes
+// into the agent's .env as ENV=value. Every setting is optional; a non-empty answer must match
+// Pattern whole.
+type Setting struct {
+	Env     string `json:"env"`
+	Prompt  string `json:"prompt"`
+	Help    string `json:"help"` // printed before the prompt: what the value is and how to change it later
+	Pattern string `json:"pattern"`
+}
+
+var settingEnv = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
+
+// ReadSettings reads and checks a kit's settings.json, in the order create asks; a kit without
+// one has none. Slack's settings are troupe's own, never a kit's.
+func ReadSettings(folder string) ([]Setting, error) {
+	path := filepath.Join(folder, "settings.json")
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var declared struct {
+		Settings []Setting `json:"settings"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&declared); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	seen := map[string]bool{}
+	for _, s := range declared.Settings {
+		_, compileErr := regexp.Compile(s.Pattern)
+		if !settingEnv.MatchString(s.Env) || strings.HasPrefix(s.Env, "SLACK_") || seen[s.Env] ||
+			strings.TrimSpace(s.Prompt) == "" || len(s.Prompt) > 200 || len([]rune(s.Help)) > 500 ||
+			strings.IndexFunc(s.Prompt+s.Help, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 ||
+			s.Pattern == "" || compileErr != nil {
+			return nil, fmt.Errorf("%s: setting %q is malformed", path, s.Env)
+		}
+		seen[s.Env] = true
+	}
+	return declared.Settings, nil
 }
 
 // Native is one native service an agent's sbxenv declares: the binding's domains and the

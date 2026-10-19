@@ -206,6 +206,7 @@ KMS instead of the TPM was considered and rejected for now:
 troupe needs some type-level files on the host that today come from the kit folder. They move into the kit image at a fixed path, `/usr/share/troupe/`:
 - `services.json`: every service an agent of the type needs, in prompt order, each with its prompt, a short help (what the key is and where to get it), whether it's required, and how sbx delivers it (native, with its domains, or a placeholder, with its environment variable, hosts and placeholder; today's `secrets.json` plus the agents' bindings);
 - `defaults.json`: the default CPUs, memory, root disk and Docker disk;
+- `settings.json`, optional: the settings `create` asks for before the keys, in prompt order, each with the `.env` variable it sets, its prompt, a short help, and the regular expression a non-empty answer must match whole (`{"settings":[{"env":"TEAM_NAME","prompt":"Team name","help":"…","pattern":"[a-z]+"}]}`). None may be a `SLACK_` variable, a line of the kit's `env` template or a placeholder service's variable;
 - `SOUL.md`: the type's default SOUL, with `{agent}` for the name (`hermes` has none: Hermes writes its own);
 - `slack-app-manifest.json`, only in kits whose type offers Slack;
 - `tools/`: the type's setup and seed-check tools;

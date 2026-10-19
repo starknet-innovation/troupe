@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/starknet-innovation/troupe/internal/agent"
 	"github.com/starknet-innovation/troupe/internal/budget"
@@ -160,6 +161,10 @@ func createPublished(e env, typ string, f createFlags) int {
 	if err != nil {
 		return report("kit", err)
 	}
+	settings, err := kitSettings(kit)
+	if err != nil {
+		return report("kit", err)
+	}
 	hasSlack := exists(filepath.Join(kit, "slack-app-manifest.json"))
 	if hasSlack && !exists(filepath.Join(kit, "env")) {
 		return report("kit", fmt.Errorf("%s %s is too old for troupe create: it has Slack but no env template", typ, img.Version))
@@ -198,6 +203,14 @@ func createPublished(e env, typ string, f createFlags) int {
 			"Look at it when your appearance matters.\n", ext))...)
 	}
 
+	// The kit's settings before the keys: a refused answer costs no key or Slack app.
+	answers, err := askSettings(e, printer, settings)
+	if err != nil {
+		if errors.Is(err, secret.ErrInterrupted) {
+			return report("settings", errors.New("interrupted; nothing was kept"))
+		}
+		return report("settings", err)
+	}
 	// The keys, before anything names them, so a failure here leaves nothing behind. Nothing is
 	// written beside the operator: the Slack link carries the manifest, and the icon step names
 	// the picture given with --avatar (a file, or an address to download it from).
@@ -208,6 +221,7 @@ func createPublished(e env, typ string, f createFlags) int {
 		}
 		return report("keys", err)
 	}
+	given.settings = answers
 	agentEnv, slackEnv, err := agentSettings(kit, given, machine)
 	if err != nil {
 		return report("create", err)
@@ -262,11 +276,13 @@ func resolve(e env, docker published.Docker, runner sbx.Runner, repository, host
 }
 
 // keys is what create collected: the native services the agent's sbxenv declares, the placeholder
-// services it was given keys for, and its Slack manager when its kit has Slack.
+// services it was given keys for, its Slack manager when its kit has Slack, and the answers to
+// its kit's settings as .env lines.
 type keys struct {
 	natives      []published.Native
 	placeholders []string
 	slackManager string
+	settings     []string
 }
 
 var slackMember = regexp.MustCompile(`^[UW][A-Z0-9]{2,}$`)
@@ -390,8 +406,74 @@ func askSlackManager(e env, printer *progress.Printer) (string, error) {
 	}
 }
 
+// kitSettings are the settings the kit asks for, checked before any key is asked: none may set a
+// line the kit's env template sets, or a placeholder service's variable.
+func kitSettings(kit string) ([]published.Setting, error) {
+	settings, err := published.ReadSettings(kit)
+	if err != nil || len(settings) == 0 {
+		return settings, err
+	}
+	taken := map[string]bool{}
+	template, err := os.ReadFile(filepath.Join(kit, "env"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	for _, line := range strings.Split(string(template), "\n") {
+		if key, _, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+			taken[key] = true
+		}
+	}
+	if exists(filepath.Join(kit, secret.ServicesFile)) {
+		services, err := secret.KitServices(kit)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range services {
+			if s.Env != "" {
+				taken[s.Env] = true
+			}
+		}
+	}
+	for _, s := range settings {
+		if taken[s.Env] {
+			return nil, fmt.Errorf("settings.json: the kit already sets %s", s.Env)
+		}
+	}
+	return settings, nil
+}
+
+// askSettings asks for each setting the kit declares, in its order, as ENV=value lines for the
+// agent's .env. Enter leaves one empty; a third answer that does not match stops. Whatever the
+// kit's pattern, an answer holds nothing a dotenv reader treats specially (a comment, quotes,
+// an expansion), so every reader of the .env sees the same value.
+func askSettings(e env, printer *progress.Printer, settings []published.Setting) ([]string, error) {
+	var lines []string
+	for _, s := range settings {
+		if s.Help != "" {
+			printer.Print("settings", progress.Info, s.Help)
+		}
+		pattern := regexp.MustCompile(`^(?:` + s.Pattern + `)$`)
+		for tries := 0; ; tries++ {
+			value, err := readLine(e.ctx, s.Prompt+" (Enter to skip): ")
+			if err != nil {
+				return nil, err
+			}
+			if value == "" || (pattern.MatchString(value) && !strings.ContainsAny(value, "#\"'$\\`") &&
+				strings.IndexFunc(value, func(r rune) bool { return !unicode.IsPrint(r) }) < 0) {
+				lines = append(lines, s.Env+"="+value)
+				break
+			}
+			if tries == 2 {
+				return nil, fmt.Errorf("%s: the answer is not in the form the kit asks for", s.Env)
+			}
+			printer.Print("settings", progress.Info, "That is not in the form "+s.Env+" needs: try again, or press Enter to skip")
+		}
+	}
+	return lines, nil
+}
+
 // agentSettings are the agent's .env (the kit's env template, then its Slack manager, who is
-// also its allowlist and its home, their DM once they write to it) and its own slack.env (the workspace, learned at
+// also its allowlist and its home, their DM once they write to it, then its kit's settings) and its own slack.env (the workspace, learned at
 // its first Slack setup). A kit without a template keeps a comment-only .env.
 func agentSettings(kit string, k keys, machine config.Machine) (agentEnv, slackEnv []byte, err error) {
 	template, err := os.ReadFile(filepath.Join(kit, "env"))
@@ -408,6 +490,9 @@ func agentSettings(kit string, k keys, machine config.Machine) (agentEnv, slackE
 	if m := k.slackManager; m != "" {
 		agentEnv = append(agentEnv, []byte("SLACK_MANAGER="+m+"\nSLACK_ALLOWED_USERS="+m+"\nSLACK_HOME_CHANNEL="+m+"\n")...)
 		slackEnv = []byte("SLACK_WORKSPACE=\n")
+	}
+	for _, line := range k.settings {
+		agentEnv = append(agentEnv, []byte(line+"\n")...)
 	}
 	return agentEnv, slackEnv, nil
 }

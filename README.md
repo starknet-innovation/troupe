@@ -93,6 +93,14 @@ checks only the new VM's side and does not probe them again: run `troupe reset` 
 set later. A kit's `env` file (`coder`'s) starts the agent's
 `.env`.
 
+**Kit settings.** A kit may also declare settings (`settings.json`): values that are not keys,
+which `create` asks for before the keys, shown as typed, each after the kit's line on what it is.
+Every one is optional (Enter leaves it empty), and an answer must have the form the kit declares.
+Each answer becomes one line of the agent's `.env`, after the Slack lines. Like the Slack
+settings, a `reset` starts the agent from what `create` was given, `resize` and `upgrade` keep
+what the agent holds then, and a setting a newer kit version adds is never asked by `upgrade`:
+the kit decides what an agent without it does.
+
 **Optional keys.** Only the placeholder services an agent was given keys for are recorded (in
 `source.json`) and wired; `troupe secret set ID SERVICE` records one the kit declares later.
 

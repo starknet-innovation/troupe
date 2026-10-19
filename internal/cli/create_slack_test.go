@@ -16,6 +16,7 @@ import (
 	"github.com/starknet-innovation/troupe/internal/agent"
 	"github.com/starknet-innovation/troupe/internal/config"
 	"github.com/starknet-innovation/troupe/internal/progress"
+	"github.com/starknet-innovation/troupe/internal/published"
 	"github.com/starknet-innovation/troupe/internal/registry"
 )
 
@@ -150,10 +151,82 @@ func TestAnAgentsSettingsComeFromTheKitTemplateAndItsSlackAnswers(t *testing.T) 
 	if string(slackEnv) != "SLACK_WORKSPACE=\n" {
 		t.Fatalf("slack.env %q", slackEnv)
 	}
+	// The kit's settings come last, as answered.
+	k.settings = []string{"TEAM_NAME=blue", "REGION="}
+	env, _, err = agentSettings(kit, k, config.Machine{})
+	if err != nil || !strings.HasSuffix(string(env), "SLACK_HOME_CHANNEL=U0ONE1234\nTEAM_NAME=blue\nREGION=\n") {
+		t.Fatalf("env %q %v", env, err)
+	}
 	// A kit without Slack or a template: no Slack settings, the comment-only .env.
 	env, slackEnv, err = agentSettings(t.TempDir(), keys{}, config.Machine{})
 	if err != nil || len(env) != 0 || len(slackEnv) != 0 {
 		t.Fatalf("%q %q %v", env, slackEnv, err)
+	}
+}
+
+// A setting may not set a line the kit's template already sets, or a placeholder's variable.
+func TestAKitSettingCannotShadowTheKitsOwnLines(t *testing.T) {
+	kit := kitWithSlack(t)
+	write := func(env string) {
+		os.WriteFile(filepath.Join(kit, "settings.json"), []byte(`{"settings":[{"env":"`+env+`","prompt":"P","pattern":"x"}]}`), 0o644)
+	}
+	write("TEAM_NAME")
+	if settings, err := kitSettings(kit); err != nil || len(settings) != 1 {
+		t.Fatalf("%v %v", settings, err)
+	}
+	write("VITE_CONFIG_NATIVE_IGNORE_WARNING")
+	if _, err := kitSettings(kit); err == nil {
+		t.Fatal("a template line accepted")
+	}
+	os.WriteFile(filepath.Join(kit, "services.json"), []byte(`{"services":[
+ {"name":"starkscan","prompt":"Starkscan","delivery":"placeholder","env":"STARKSCAN_API_KEY","hosts":["api.starkscan.co"],"placeholder":"sbx-starkscan-{agent}"}]}`), 0o644)
+	write("STARKSCAN_API_KEY")
+	if _, err := kitSettings(kit); err == nil {
+		t.Fatal("a placeholder's variable accepted")
+	}
+	if settings, err := kitSettings(t.TempDir()); err != nil || settings != nil {
+		t.Fatalf("a kit without settings: %v %v", settings, err)
+	}
+}
+
+// Each setting is asked in order; Enter leaves it empty, a wrong answer is asked again, and a
+// third wrong one stops.
+func TestKitSettingsAreAskedAndMatchTheirPattern(t *testing.T) {
+	defer func(saved func(context.Context, string) (string, error)) { readLine = saved }(readLine)
+	var out bytes.Buffer
+	printer := &progress.Printer{Agent: "Jane", Location: time.UTC, Out: &out, Err: &out, Now: time.Now}
+	e := env{ctx: context.Background(), out: &out, err: &out}
+	settings := []published.Setting{
+		{Env: "TEAM_NAME", Prompt: "Team name", Help: "Change it later in chat.", Pattern: "[a-z]+(,[a-z]+)*"},
+		{Env: "REGION", Prompt: "Region", Pattern: "eu|us"},
+	}
+	var prompts []string
+	answers := []string{"Blue Team", "blue,red", ""}
+	readLine = func(_ context.Context, prompt string) (string, error) {
+		prompts = append(prompts, prompt)
+		a := answers[0]
+		answers = answers[1:]
+		return a, nil
+	}
+	lines, err := askSettings(e, printer, settings)
+	if err != nil || strings.Join(lines, "\n") != "TEAM_NAME=blue,red\nREGION=" {
+		t.Fatalf("%q %v", lines, err)
+	}
+	if prompts[0] != "Team name (Enter to skip): " || !strings.Contains(out.String(), "Change it later in chat.") ||
+		!strings.Contains(out.String(), "try again") {
+		t.Fatalf("%q\n%s", prompts, out.String())
+	}
+	// The pattern matches the whole answer, never a part of it.
+	readLine = func(context.Context, string) (string, error) { return "eu-west", nil }
+	if _, err := askSettings(e, printer, settings[1:]); err == nil {
+		t.Fatal("three wrong answers accepted")
+	}
+	// Even a pattern that admits anything never lets a dotenv comment, quote or expansion through.
+	for _, answer := range []string{"a #b", `"a"`, "'a'", "$HOME", `a\b`, "`a`", "a\x1bb"} {
+		readLine = func(context.Context, string) (string, error) { return answer, nil }
+		if _, err := askSettings(e, printer, []published.Setting{{Env: "ANY", Prompt: "Any", Pattern: ".*"}}); err == nil {
+			t.Fatalf("%q accepted", answer)
+		}
 	}
 }
 
