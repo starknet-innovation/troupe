@@ -6,7 +6,7 @@ troupe is a Go CLI that manages Hermes agents, each in its own Docker Sandbox. T
 
 - Local Git on `main`: never add a remote or push without the owner's explicit request. Inspect `git status --short` before editing, preserve unrelated changes, never clean or reset destructively without approval.
 - Never commit automatically. Report verified scope and evidence, then ask the owner to approve. Before asking, audit the uncommitted diff once with an independent reviewer against the README's [security model](README.md#security-model).
-- This repository is meant to be published: nothing private goes in it, no real agent, person, account, channel or machine names, identifiers or credentials. Examples use the fictional kit in [`examples/kit`](examples/kit). Before asking to commit, run the owner's private scan, kept outside this repository: `python3 -m unittest discover -s ~/hermes-agents/tests -p test_troupe_private.py`.
+- This repository is meant to be published: nothing private goes in it, no real agent, person, account, channel or machine names, identifiers or credentials. Examples use the fictional kit in [`examples/kit`](examples/kit).
 - Never invoke `sudo`, even as a probe. Hand the owner one reviewable command.
 - Before **any** `sbx` command, run the honest sandboxd probe (`troupe guard probe`).
 
