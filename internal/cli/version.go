@@ -2,9 +2,10 @@ package cli
 
 import (
 	"fmt"
-	"github.com/starknet-innovation/troupe/internal/help"
 	"regexp"
 	"runtime/debug"
+
+	"github.com/starknet-innovation/troupe/internal/help"
 )
 
 var versionHelp = help.Render(help.Command{

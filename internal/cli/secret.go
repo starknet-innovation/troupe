@@ -3,9 +3,9 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"github.com/starknet-innovation/troupe/internal/help"
 	"strings"
 
+	"github.com/starknet-innovation/troupe/internal/help"
 	"github.com/starknet-innovation/troupe/internal/progress"
 	"github.com/starknet-innovation/troupe/internal/registry"
 	"github.com/starknet-innovation/troupe/internal/secret"

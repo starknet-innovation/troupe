@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/starknet-innovation/troupe/internal/help"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/starknet-innovation/troupe/internal/doctor"
 	"github.com/starknet-innovation/troupe/internal/guard"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"github.com/starknet-innovation/troupe/internal/progress"
 )
 

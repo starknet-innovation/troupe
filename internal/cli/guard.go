@@ -3,10 +3,10 @@ package cli
 import (
 	"flag"
 	"fmt"
-	"github.com/starknet-innovation/troupe/internal/help"
 	"time"
 
 	"github.com/starknet-innovation/troupe/internal/guard"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"github.com/starknet-innovation/troupe/internal/progress"
 )
 

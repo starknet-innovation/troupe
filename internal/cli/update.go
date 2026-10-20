@@ -5,10 +5,10 @@ package cli
 import (
 	"flag"
 	"fmt"
-	"github.com/starknet-innovation/troupe/internal/help"
 	"os"
 
 	"github.com/starknet-innovation/troupe/internal/agent"
+	"github.com/starknet-innovation/troupe/internal/help"
 )
 
 var updateHelp = help.Render(help.Command{

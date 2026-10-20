@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/starknet-innovation/troupe/internal/help"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,6 +22,7 @@ import (
 	"github.com/starknet-innovation/troupe/internal/agent"
 	"github.com/starknet-innovation/troupe/internal/guard"
 	"github.com/starknet-innovation/troupe/internal/guest"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"github.com/starknet-innovation/troupe/internal/registry"
 	"github.com/starknet-innovation/troupe/internal/sbx"
 )

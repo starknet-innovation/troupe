@@ -23,6 +23,7 @@ are listed in `embed_dev.go` (the rest in `embed.go`).
 | `troupe update skills\|scripts\|soul AGENT` | Puts seed changes into a running agent without a reset. Your seeds win: it overwrites the agent's own edits to those files and keeps each overwritten copy in its receipt. Needs a finished reset or create. |
 | `troupe harvest AGENT` | Read only collection of the agent's own skill edits, before a reset, update or upgrade replaces them; it prints where they are and the next step (blend them into the kit by hand or with an LLM, then update or upgrade); any agent, one created from a published kit included (its seeds are the pinned kit's). |
 | `troupe storage check AGENT` | Checks a sandbox's disks and mounts against its declared storage. |
+| `troupe budget check --name NAME --cpu N --memory GiB --disk GiB` | Whether this machine has room for a new sandbox, counted as `create` counts a new agent: exit 0 when it fits, 3 when over budget (with the figures; the caller decides), 1 when it can never fit or the check could not run. Never asks; other tools (such as a Lab's) call it before creating a sandbox. |
 
 A local kits root is trusted: it is the maintainer's own checkout, read straight from disk. Its
 tools still run only inside the agent's VM, never on the host.

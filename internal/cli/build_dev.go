@@ -16,6 +16,7 @@ import (
 // devEntries are the maintainer commands.
 var devEntries = []entry{
 	{"agents", "list the agents in the kits root and show their kits and seeds", agents, false},
+	{"budget", "check this machine has room for a new sandbox", budgetCommand, false},
 	{"harvest", "collect an agent's own skill edits before they are replaced (read only)", harvestCommand, false},
 	{"storage", "check a sandbox's disks and mounts against its declared storage", storageCommand, false},
 	{"update", "make an agent's skills, scripts or SOUL.md match the seeds", updateCommand, false},
