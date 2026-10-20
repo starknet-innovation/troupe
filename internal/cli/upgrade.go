@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,23 +20,18 @@ import (
 	"github.com/starknet-innovation/troupe/internal/secret"
 )
 
-const upgradeHelp = `Usage:
-  troupe upgrade AGENT [--force]
-
-Moves an agent created from a published kit onto the newest version of its kit, keeping
-everything it has: troupe pins the new version, moves the agent into a new VM with its
-memories, sessions, workspace and learned skills (as resize does), then makes its seeded
-skills and scripts match the new version. Each edit of the agent's own that a seed replaces is
-kept in ~/.local/state/live-apply/AGENT/: harvest the agent's own lessons into the kit
-before publishing the version you upgrade to. Only the latest version, when newer within the
-same MAJOR, is taken: a new MAJOR means recreating the agent. It asks you to confirm when over
-the machine's budget (--force confirms), then for sudo, then for any key the new version
-requires that the agent does not have, and refuses when the new version's Slack app manifest
-differs. An agent already on the latest version is left as it is. If the move stops partway,
-troupe resize AGENT resumes it; troupe upgrade AGENT then makes the seeds match. If troupe was
-killed outright after pinning the new version and before the move began, troupe resize AGENT
-moves the agent onto it.
-`
+var upgradeHelp = help.Render(help.Command{
+	Summary: "Move an agent onto the newest version of its kit, keeping everything it has.",
+	Usage:   []string{"upgrade AGENT [flags]"},
+	Args:    []help.Arg{{Name: "AGENT", Desc: "The agent to upgrade, one created from a published kit."}},
+	Flags:   []help.Flag{{Name: "force", Desc: "Upgrade even over the machine's resource budget.", Default: "ask"}},
+	Notes: []string{
+		"Takes only a newer version of the same MAJOR; a new MAJOR means creating the agent again.",
+		"Replaces the agent's edits to seeded skills and scripts; copies go to ~/.local/state/live-apply/.",
+		"Asks for sudo, then for any key the new version needs.",
+		"If the move stops partway, troupe resize AGENT resumes it; then run troupe upgrade AGENT again.",
+	},
+})
 
 func upgradeCommand(e env, args []string) int {
 	force := false

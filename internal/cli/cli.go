@@ -16,32 +16,26 @@ import (
 	"time"
 
 	"github.com/starknet-innovation/troupe/internal/config"
+	"github.com/starknet-innovation/troupe/internal/help"
+	"github.com/starknet-innovation/troupe/internal/published"
 	"github.com/starknet-innovation/troupe/internal/registry"
 )
 
-// usageTop and usageBottom frame the command list, which is built from the visible commands.
-const usageTop = `troupe manages a troupe of Hermes agents, each in its own Docker Sandbox.
-
-Usage:
-  troupe ` + globalUsage + `<command> [arguments]
-
-Commands:
-`
-
-const usageBottom = kitsNote + `
-Run "troupe <command> --help" for a command's usage.
-`
-
+// usage is troupe's own help: the visible commands, one line each.
 func usage() string {
-	var b strings.Builder
-	b.WriteString(usageTop)
+	var commands []help.Row
 	for _, c := range commandList {
 		if !c.hidden {
-			fmt.Fprintf(&b, "  %-9s %s\n", c.name, c.summary)
+			commands = append(commands, help.Row{Name: c.name, Desc: strings.ToUpper(c.summary[:1]) + c.summary[1:] + "."})
 		}
 	}
-	b.WriteString(usageBottom)
-	return b.String()
+	return help.Render(help.Command{
+		Summary:  "Manage Hermes agents, each in its own Docker Sandbox.",
+		Usage:    []string{globalUsage + "COMMAND [arguments]"},
+		Commands: commands,
+		Flags:    globalFlags,
+		Notes:    []string{"Run \"troupe COMMAND --help\" for a command's help."},
+	})
 }
 
 // env is what every command gets: streams, the kits root flag and a cancelable context.
@@ -167,6 +161,10 @@ func subcommand(e env, name, help string, args []string, define func(*flag.FlagS
 	if define != nil {
 		define(set)
 	}
+	if err := documented(name, help, set); err != nil {
+		fmt.Fprintf(e.err, "troupe: %v\n", err)
+		return nil, 1, false
+	}
 	// Flags may follow positional arguments ("show AGENT --json"): Parse stops at the first
 	// positional, so take it and parse the rest again.
 	for {
@@ -184,6 +182,34 @@ func subcommand(e env, name, help string, args []string, define func(*flag.FlagS
 		}
 		rest, args = append(rest, args[0]), args[1:]
 	}
+}
+
+// flagHelp is the help that documents a command's flags when the help it shows does not: create
+// shows a short help, and each type's help documents the flags.
+var flagHelp = map[string]func() string{"create": func() string {
+	var all string
+	for _, t := range published.Types {
+		all += createTypeHelp(t)
+	}
+	return all
+}}
+
+// documented refuses a flag the command's help does not describe on a line of its own, so help
+// never drifts from the flags.
+func documented(name, help string, set *flag.FlagSet) error {
+	if more, ok := flagHelp[strings.Fields(name)[0]]; ok {
+		help = more()
+	}
+	var missing []string
+	set.VisitAll(func(f *flag.Flag) {
+		if !regexp.MustCompile(`(?m)^  --` + regexp.QuoteMeta(f.Name) + `( |$)`).MatchString(help) {
+			missing = append(missing, "--"+f.Name)
+		}
+	})
+	if len(missing) > 0 {
+		return fmt.Errorf("internal error: %s's help does not describe %s", name, strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 // helpRequested reports whether a command was called as "COMMAND --help" or "COMMAND -h".

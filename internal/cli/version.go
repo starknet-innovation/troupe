@@ -2,17 +2,16 @@ package cli
 
 import (
 	"fmt"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"regexp"
 	"runtime/debug"
 )
 
-const versionHelp = `Usage:
-  troupe version
-
-Prints the release version (1.0.0), or for a build from a checkout its commit (6ddc673), marked
-"modified" when the checkout had uncommitted changes. A dev build (go build -tags dev, with
-the maintainer commands) says so.
-`
+var versionHelp = help.Render(help.Command{
+	Summary: "Print troupe's version: the release, or for a build from a checkout its commit.",
+	Usage:   []string{"version"},
+	Notes:   []string{"A build with uncommitted changes says \"modified\"; a dev build says so."},
+})
 
 func version(e env, args []string) int {
 	if helpRequested(args) {

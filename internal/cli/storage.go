@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"regexp"
 	"time"
 
@@ -17,20 +18,18 @@ import (
 	"github.com/starknet-innovation/troupe/internal/sbx"
 )
 
-const storageHelp = `Usage:
-  troupe storage check NAME ROOT_GIB DOCKER_GIB [HOST_WORKSPACE]
-
-Checks a running sandbox against its declared storage: one sandbox has the name, its host
-workspace list is exactly HOST_WORKSPACE (or empty), and inside the VM the root and Docker
-disks have the declared sizes, Docker is mounted only when DOCKER_GIB is above zero, no host
-folder but HOST_WORKSPACE is mounted, and no SSH agent socket is forwarded.
-
-The VM-side checks run as the agent's own user and report what the VM shows: they catch
-misconfiguration, but are no proof against a compromised agent, which controls its VM. The
-host-side checks (the sandbox inventory) are.
-
-Prints progress lines; sbx output goes to the log named on failure.
-`
+var storageHelp = help.Render(help.Command{
+	Summary:  "Check a running sandbox's disks and mounts against its declared storage.",
+	Usage:    []string{"storage check NAME ROOT_GIB DOCKER_GIB [HOST_WORKSPACE]"},
+	Commands: []help.Row{{Name: "check", Desc: "Check the disk sizes, and that nothing undeclared is mounted or forwarded."}},
+	Args: []help.Arg{
+		{Name: "NAME", Desc: "The sandbox."},
+		{Name: "ROOT_GIB", Desc: "Its declared root disk, in GiB."},
+		{Name: "DOCKER_GIB", Desc: "Its declared Docker disk, in GiB; 0 means none."},
+		{Name: "HOST_WORKSPACE", Desc: "The one host folder it may mount.", Optional: true, Default: "none"},
+	},
+	Notes: []string{"The checks inside the VM catch mistakes, not a compromised agent; the host side ones do."},
+})
 
 var (
 	positive    = regexp.MustCompile(`^[1-9][0-9]*$`)

@@ -28,9 +28,6 @@ import (
 	"github.com/starknet-innovation/troupe/internal/secret"
 )
 
-// typeName is an agent type: a published kit's repository name.
-var typeName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-
 // createFlags are create's options for a published agent.
 type createFlags struct {
 	name, soul, avatar          string
@@ -46,8 +43,8 @@ func createPublished(e env, typ string, f createFlags) int {
 	if err != nil {
 		return usageError(e, createHelp, "create: %v", err)
 	}
-	if !typeName.MatchString(typ) {
-		return usageError(e, createHelp, "create: malformed agent type: %s", typ)
+	if _, ok := published.TypeNamed(typ); !ok {
+		return usageError(e, createHelp, "create: TYPE must be %s", typeList())
 	}
 	if strings.HasSuffix(name, "-lab") {
 		return usageError(e, createHelp, "create: a name ending in -lab is a Lab's, never an agent's")
@@ -168,6 +165,12 @@ func createPublished(e env, typ string, f createFlags) int {
 	hasSlack := exists(filepath.Join(kit, "slack-app-manifest.json"))
 	if hasSlack && !exists(filepath.Join(kit, "env")) {
 		return report("kit", fmt.Errorf("%s %s is too old for troupe create: it has Slack but no env template", typ, img.Version))
+	}
+	// troupe's help describes each type's kit as it was; a newer kit is followed, and said so.
+	if asks, err := kitAsks(kit, settings); err != nil {
+		return report("kit", err)
+	} else if t, _ := published.TypeNamed(typ); t.Differs(sizes, asks) {
+		printer.Print("kit", progress.Info, fmt.Sprintf("%s %s's sizes or questions differ from this troupe's help; troupe follows the kit", typ, img.Version))
 	}
 	if f.cpus > 0 {
 		sizes.CPUs = f.cpus
@@ -296,14 +299,15 @@ func askKeys(e env, printer *progress.Printer, kit, name, display string, avatar
 	if err != nil {
 		return k, err
 	}
-	slack := 0
-	for _, s := range declared {
+	// The manager comes right after the last Slack key, whether that key was given or skipped.
+	lastSlack := -1
+	for i, s := range declared {
 		if s.Slack {
-			slack++
+			lastSlack = i
 		}
 	}
 	shown := false
-	for _, s := range declared {
+	for i, s := range declared {
 		if s.Slack && !shown {
 			if err := slackSteps(printer, kit, display, avatar); err != nil {
 				return k, err
@@ -317,7 +321,7 @@ func askKeys(e env, printer *progress.Printer, kit, name, display string, avatar
 		if !s.Required {
 			prompt = s.Prompt + " (hidden, Enter to skip): "
 		}
-		value, err := secret.TerminalReader(e.ctx)(prompt)
+		value, err := readSecret(e.ctx)(prompt)
 		if err != nil {
 			return k, err
 		}
@@ -325,34 +329,41 @@ func askKeys(e env, printer *progress.Printer, kit, name, display string, avatar
 			if s.Required {
 				return k, fmt.Errorf("%s is required", s.Name)
 			}
-			continue
-		}
-		svc := secret.Service{Name: s.Name}
-		if s.Delivery == "placeholder" {
-			svc = secret.Service{Name: s.Name, Placeholder: true, Env: s.Env, Hosts: s.Hosts,
-				Value: strings.ReplaceAll(s.Placeholder, "{agent}", name)}
-		}
-		// The name is claimed and no sandbox has it: the key is stored now, wired at creation.
-		store := &secret.Store{Agent: name, Services: []secret.Service{svc}, Root: secret.DefaultRoot(), Runner: runner,
-			ReadSecret: func(string) ([]byte, error) { return value, nil }, Unborn: true}
-		if _, _, err := store.Set(e.ctx, s.Name); err != nil {
+		} else if err := k.store(e, s, value, name, runner); err != nil {
 			return k, err
 		}
-		if s.Delivery == "native" {
-			k.natives = append(k.natives, published.Native{Name: s.Name, Command: store.Command(svc), Domains: s.Domains})
-		} else {
-			k.placeholders = append(k.placeholders, s.Name)
-		}
-		if s.Slack {
-			if slack--; slack == 0 {
-				if k.slackManager, err = askSlackManager(e, printer); err != nil {
-					return k, err
-				}
+		if i == lastSlack {
+			if k.slackManager, err = askSlackManager(e, printer); err != nil {
+				return k, err
 			}
 		}
 	}
 	return k, nil
 }
+
+// store keeps one service's key with the TPM, to be wired when the agent is created.
+func (k *keys) store(e env, s secret.KitService, value []byte, name string, runner sbx.Runner) error {
+	svc := secret.Service{Name: s.Name}
+	if s.Delivery == "placeholder" {
+		svc = secret.Service{Name: s.Name, Placeholder: true, Env: s.Env, Hosts: s.Hosts,
+			Value: strings.ReplaceAll(s.Placeholder, "{agent}", name)}
+	}
+	// The name is claimed and no sandbox has it: the key is stored now, wired at creation.
+	store := &secret.Store{Agent: name, Services: []secret.Service{svc}, Root: secret.DefaultRoot(), Runner: runner,
+		ReadSecret: func(string) ([]byte, error) { return value, nil }, Unborn: true}
+	if _, _, err := store.Set(e.ctx, s.Name); err != nil {
+		return err
+	}
+	if s.Delivery == "native" {
+		k.natives = append(k.natives, published.Native{Name: s.Name, Command: store.Command(svc), Domains: s.Domains})
+	} else {
+		k.placeholders = append(k.placeholders, s.Name)
+	}
+	return nil
+}
+
+// readSecret reads a key without echoing it; tests replace it.
+var readSecret = secret.TerminalReader
 
 // slackSteps prints how to create the agent's Slack app: a one-click link that opens Slack's
 // create-from-manifest flow pre-filled with the whole manifest, so no file is left behind.
@@ -440,6 +451,34 @@ func kitSettings(kit string) ([]published.Setting, error) {
 		}
 	}
 	return settings, nil
+}
+
+// kitAsks is what create will ask for, in order, by name: the kit's settings, its services,
+// and "manager" after its last Slack service.
+func kitAsks(kit string, settings []published.Setting) ([]published.Ask, error) {
+	var asks []published.Ask
+	for _, s := range settings {
+		asks = append(asks, published.Ask{Name: s.Env, Optional: true})
+	}
+	services, err := secret.KitServices(kit)
+	if err != nil {
+		return nil, err
+	}
+	slack := 0
+	for _, s := range services {
+		if s.Slack {
+			slack++
+		}
+	}
+	for _, s := range services {
+		asks = append(asks, published.Ask{Name: s.Name, Optional: !s.Required})
+		if s.Slack {
+			if slack--; slack == 0 {
+				asks = append(asks, published.Ask{Name: "manager"})
+			}
+		}
+	}
+	return asks, nil
 }
 
 // askSettings asks for each setting the kit declares, in its order, as ENV=value lines for the

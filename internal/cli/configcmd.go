@@ -2,30 +2,33 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/starknet-innovation/troupe/internal/config"
+	"github.com/starknet-innovation/troupe/internal/help"
 )
 
 func configHelp() string {
-	var b strings.Builder
-	b.WriteString(`Usage:
-  troupe config list
-  troupe config get KEY
-  troupe config set KEY VALUE
-  troupe config unset KEY
-
-This machine's settings, kept in ` + config.MachinePath() + `
-(XDG_CONFIG_HOME moves it). They belong to the machine, not the kits, so the same kits
-can be used on machines of different sizes.
-
-Settings:
-`)
+	var settings []help.Row
 	for _, s := range config.Settings {
-		fmt.Fprintf(&b, "  %-19s %s\n", s.Key, s.Help)
+		settings = append(settings, help.Row{Name: s.Key, Desc: s.Help + " Default: " + s.Default + "."})
 	}
-	return b.String()
+	return help.Render(help.Command{
+		Summary: "Show and change this machine's settings.",
+		Usage:   []string{"config list", "config get KEY", "config set KEY VALUE", "config unset KEY"},
+		Commands: []help.Row{
+			{Name: "list", Desc: "Show every setting."},
+			{Name: "get KEY", Desc: "Show one setting."},
+			{Name: "set KEY VALUE", Desc: "Change one setting."},
+			{Name: "unset KEY", Desc: "Return one setting to its default."},
+		},
+		Args: []help.Arg{
+			{Name: "KEY", Desc: "A setting, from the Settings below."},
+			{Name: "VALUE", Desc: "Its new value."},
+		},
+		Sections: []help.Section{{Title: "Settings", Rows: settings}},
+		Notes:    []string{"Kept in " + config.MachinePath() + " (XDG_CONFIG_HOME moves it)."},
+	})
 }
 
 func configCommand(e env, args []string) int {

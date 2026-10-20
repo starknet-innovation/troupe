@@ -54,6 +54,7 @@ troupe create hermes --name jane
 ```
 
 creates a new agent from the latest published kit of an agent type, with no kits checkout.
+The types are `coder` and `hermes`; `troupe create TYPE --help` shows each one's sizes and what it asks for.
 troupe pulls `REGISTRY/TYPE:latest` (the `registry` machine setting) and pins the version it
 names: the agent is composed from `REGISTRY/TYPE:VERSION`, whose tag never moves, never from
 `latest`, so a later version changes it only when you run `troupe upgrade`. It keeps that kit's `/usr/share/troupe/` files (the services the type

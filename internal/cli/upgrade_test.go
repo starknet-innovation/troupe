@@ -103,7 +103,7 @@ func TestUpgradeRefusesAnOpenTransactionFirst(t *testing.T) {
 	if after, _ := os.ReadFile(filepath.Join(folder, "sbxenv.yaml")); string(after) != string(before) {
 		t.Fatal("a refused upgrade changed the pin")
 	}
-	if code, out, _ := run("upgrade", "--help"); code != 0 || !strings.Contains(out, "troupe upgrade AGENT [--force]") {
+	if code, out, _ := run("upgrade", "--help"); code != 0 || !strings.Contains(out, "troupe upgrade AGENT [flags]") || !strings.Contains(out, "  --force ") {
 		t.Fatalf("help: exit %d: %s", code, out)
 	}
 }

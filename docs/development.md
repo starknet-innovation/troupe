@@ -30,7 +30,7 @@ tools still run only inside the agent's VM, never on the host.
 `reset` and `resize` work on local agents too. A local agent's sizes are its own folder's files
 (CPUs and memory in `sbxenv.yaml`, the disks in `storage.env`; sbx has no disk field in
 `sbxenv.yaml`): edit them, then `troupe resize AGENT` with no sizes moves it into a new VM at
-them. `troupe create AGENT` creates the first VM of a local agent.
+them. `troupe create` makes agents only from published kits (`troupe create TYPE --name NAME`).
 
 ## Kits root
 

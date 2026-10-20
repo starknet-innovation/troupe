@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"strings"
 
 	"github.com/starknet-innovation/troupe/internal/progress"
@@ -10,20 +11,22 @@ import (
 	"github.com/starknet-innovation/troupe/internal/secret"
 )
 
-const secretHelp = `Usage:
-  troupe secret set AGENT SERVICE
-  troupe secret check AGENT
-
-  set    asks for the secret without showing it, encrypts it with this machine's TPM and
-         gives the agent's sandbox access to it. Use it to add or rotate a key. Asks for
-         sudo once.
-  check  checks every secret the agent needs: stored, decryptable and wired to its
-         sandbox. Never shows a value.
-
-A service is one of the agent's sbxenv.yaml secrets or its base kit's secrets.json entries.
-A new service, unlike a rotated key, reaches a running sandbox only after sandboxd restarts,
-which stops every VM on the host.
-`
+var secretHelp = help.Render(help.Command{
+	Summary: "Store an agent's API keys encrypted, and give its sandbox access to them.",
+	Usage:   []string{"secret set AGENT SERVICE", "secret check AGENT"},
+	Commands: []help.Row{
+		{Name: "set AGENT SERVICE", Desc: "Ask for a key (hidden), encrypt it with the TPM and wire it. Adds or rotates."},
+		{Name: "check AGENT", Desc: "Check every key the agent needs is stored, decryptable and wired."},
+	},
+	Args: []help.Arg{
+		{Name: "AGENT", Desc: "The agent."},
+		{Name: "SERVICE", Desc: "A service the agent's kit declares, such as venice."},
+	},
+	Notes: []string{
+		"set asks for sudo. No command ever shows a key.",
+		"A new service (not a rotated key) needs a sandboxd restart, which stops every VM.",
+	},
+})
 
 func secretCommand(e env, args []string) int {
 	if helpRequested(args) {

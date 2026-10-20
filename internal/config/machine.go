@@ -14,7 +14,8 @@ import (
 
 // Setting is one machine setting troupe config can read and change.
 type Setting struct {
-	Key, Help string
+	// Help says what it is; Default what unset means.
+	Key, Help, Default string
 	// parse turns the text a user types into the stored JSON value, refusing bad input.
 	parse func(text string) (any, error)
 	// stored is the stored value's JSON type: number or string.
@@ -49,9 +50,10 @@ func (s Setting) check(value any) error {
 // adds the kits root second.
 var Settings = withKits([]Setting{
 	{
-		Key:    "timezone",
-		stored: "string",
-		Help:   "IANA zone for progress times, such as Europe/Paris; unset means the host's zone",
+		Key:     "timezone",
+		stored:  "string",
+		Help:    "Time zone of progress lines, such as Europe/Paris.",
+		Default: "the host's",
 		parse: func(text string) (any, error) {
 			if _, err := time.LoadLocation(text); err != nil || text == "" || text == "Local" {
 				return nil, errors.New("an IANA zone name such as Europe/Paris")
@@ -60,9 +62,10 @@ var Settings = withKits([]Setting{
 		},
 	},
 	{
-		Key:    "collector-timer",
-		stored: "string",
-		Help:   "a host timer whose job execs into agent VMs, such as a version collector; reset and resize stop it and start it again after; unset means none",
+		Key:     "collector-timer",
+		stored:  "string",
+		Help:    "A host timer that reset and resize pause.",
+		Default: "none",
 		parse: func(text string) (any, error) {
 			if !timerName.MatchString(text) {
 				return nil, errors.New("a timer unit name, such as versions.timer")
@@ -71,9 +74,10 @@ var Settings = withKits([]Setting{
 		},
 	},
 	{
-		Key:    "registry",
-		stored: "string",
-		Help:   "the registry repository the published agent kits come from, such as ghcr.io/example; unset means " + DefaultRegistry,
+		Key:     "registry",
+		stored:  "string",
+		Help:    "Where the published kits are.",
+		Default: DefaultRegistry,
 		parse: func(text string) (any, error) {
 			if !registryName.MatchString(text) {
 				return nil, errors.New("a registry host and path, such as ghcr.io/example")
@@ -81,8 +85,8 @@ var Settings = withKits([]Setting{
 			return text, nil
 		},
 	},
-	boundarySetting("slack-boundary-public", "a public one"),
-	boundarySetting("slack-boundary-private", "a private one"),
+	boundarySetting("slack-boundary-public", "public"),
+	boundarySetting("slack-boundary-private", "private"),
 })
 
 // devOnly reports whether key is the dev build's kits setting read by a release build, which
@@ -101,9 +105,10 @@ func withKits(settings []Setting) []Setting {
 // (troupe checks it when it sets up an agent's Slack); unset means no such check.
 func boundarySetting(key, which string) Setting {
 	return Setting{
-		Key:    key,
-		stored: "string",
-		Help:   "a Slack channel ID (C...) published agents must not reach, " + which + "; unset means none is checked",
+		Key:     key,
+		stored:  "string",
+		Help:    "A " + which + " Slack channel ID (C…) agents must not reach.",
+		Default: "none",
 		parse: func(text string) (any, error) {
 			if !slackChannel.MatchString(text) {
 				return nil, errors.New("a Slack channel ID, such as C0123456789")

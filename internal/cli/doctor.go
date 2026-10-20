@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,17 +16,15 @@ import (
 	"github.com/starknet-innovation/troupe/internal/progress"
 )
 
-const doctorHelp = `Usage:
-  troupe doctor
-
-Checks whether this machine can host agents, one line per requirement. Hardware troupe cannot
-do without fails: an x86_64 CPU, KVM usable by you, a TPM 2.0, and room for one agent at the
-coder default (4 CPUs, 8 GiB memory, 120 GiB disk) beyond the reserves. Software you can add
-later asks for your action: systemd 256 or newer with systemd-creds (older than 259, the version
-troupe is tested on, is noted), Docker with buildx, sbx 0.48 or newer, sudo, and troupe's
-systemd units installed, current and running the sandbox daemon. Exit 1 on any failure. create
-runs the same checks first and refuses on any failure or requested action.
-`
+var doctorHelp = help.Render(help.Command{
+	Summary: "Check whether this machine can host agents, one line per requirement.",
+	Usage:   []string{"doctor"},
+	Notes: []string{
+		"Fails without the hardware: an x86_64 CPU, KVM, a TPM 2.0, room for one coder agent.",
+		"Asks for your action on software: systemd 256+, Docker buildx, sbx 0.48+, sudo, troupe's units.",
+		"Exit 1 on any failure. create runs the same checks first.",
+	},
+})
 
 // machineCheck runs the doctor's checks on this machine; tests replace it.
 var machineCheck = func() []doctor.Line {

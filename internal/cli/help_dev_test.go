@@ -37,7 +37,7 @@ func TestTheDevBuildSaysSo(t *testing.T) {
 // A release build refuses --kits; the dev build's help names it.
 func TestTheDevBuildNamesTheKitsRoot(t *testing.T) {
 	_, out, _ := run("--help")
-	if !strings.Contains(out, "troupe [--kits DIR] <command>") || !strings.Contains(out, "kits machine") {
+	if !strings.Contains(out, "troupe [--kits DIR] COMMAND") || !strings.Contains(out, "  --kits DIR ") {
 		t.Fatalf("help:\n%s", out)
 	}
 }

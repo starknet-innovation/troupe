@@ -6,27 +6,28 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"github.com/starknet-innovation/troupe/internal/registry"
 	"strings"
 )
 
-const agentsHelp = `Usage:
-  troupe agents list [--json]
-  troupe agents show AGENT [--json]
-  troupe agents slack-manifest AGENT
-  troupe agents materialize AGENT DIR
-
-An agent is a folder in the kits root whose sbxenv.yaml is named after the folder and
-composes a base kit followed by itself (.): the base is a relative ../ path to a Docker
-Sandbox v3 workload kit, a folder holding FOLDER.yaml that says kind: workload (such as
-kits: ["../../kits/coder", "."]). A Lab (named NAME-lab) is never an agent.
-
-  list            the agents, one per line
-  show            the agent's base kit, kit folders and native secrets
-  slack-manifest  the base kit's Slack app manifest named after the agent, to paste into Slack
-  materialize     write the agent's composed seed home (~/.hermes) into DIR; refuses a
-                  path that two kits both provide
-`
+var agentsHelp = help.Render(help.Command{
+	Summary: "List the agents in the kits root and show their kits and seeds.",
+	Usage: []string{"agents list [flags]", "agents show AGENT [flags]", "agents slack-manifest AGENT",
+		"agents materialize AGENT DIR"},
+	Commands: []help.Row{
+		{Name: "list", Desc: "The agents, one per line."},
+		{Name: "show AGENT", Desc: "The agent's base kit, kit folders and native secrets."},
+		{Name: "slack-manifest AGENT", Desc: "The base kit's Slack app manifest named after the agent."},
+		{Name: "materialize AGENT DIR", Desc: "Write the agent's composed seed home (~/.hermes) into DIR."},
+	},
+	Args: []help.Arg{
+		{Name: "AGENT", Desc: "An agent in the kits root."},
+		{Name: "DIR", Desc: "The folder to write into."},
+	},
+	Flags: []help.Flag{{Name: "json", Desc: "Print JSON.", Default: "text", Only: "list and show"}},
+	Notes: []string{"A Lab (named NAME-lab) is never an agent."},
+})
 
 func agents(e env, args []string) int {
 	if helpRequested(args) {

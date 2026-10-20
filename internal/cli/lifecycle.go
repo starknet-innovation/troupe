@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"os"
 	"path/filepath"
 
@@ -16,44 +17,45 @@ import (
 	"github.com/starknet-innovation/troupe/internal/sbx"
 )
 
-const startHelp = `Usage:
-  troupe start AGENT [--force]
+var startHelp = help.Render(help.Command{
+	Summary: "Start an agent and keep it starting at boot.",
+	Usage:   []string{"start AGENT [flags]"},
+	Args:    []help.Arg{{Name: "AGENT", Desc: "The agent to start."}},
+	Flags:   []help.Flag{{Name: "force", Desc: "Start even over the machine's resource budget.", Default: "ask"}},
+	Notes: []string{
+		"Waits until its gateway runs, with Slack connected when its kit uses Slack.",
+		"Asks for sudo. An agent larger than the whole machine is refused.",
+	},
+})
 
-Starts the agent and keeps it starting at boot: enables and starts its gateway unit (whose
-attached sbx exec boots the VM) and waits until the gateway runs, with Slack connected when
-the agent's kit uses Slack. Asks for sudo once.
+var stopHelp = help.Render(help.Command{
+	Summary: "Stop an agent once its current work finishes, and keep it stopped.",
+	Usage:   []string{"stop AGENT [flags]"},
+	Args:    []help.Arg{{Name: "AGENT", Desc: "The agent to stop."}},
+	Flags:   []help.Flag{{Name: "cap-minutes", Value: "N", Desc: "Minutes to wait for its current work.", Default: "60"}},
+	Notes: []string{
+		"New work is refused while it waits. If the work does not finish in time, the agent keeps running.",
+		"Asks for sudo.",
+	},
+})
 
-Before any work it checks the machine's budget: every running sandbox's memory and CPUs, with
-this one's, against what the machine has. Over budget, it shows by how much and asks you to
-confirm; --force confirms. One agent larger than the machine is refused.
-`
+var drainHelp = help.Render(help.Command{
+	Summary: "Let an agent finish its current work before a stop (stop calls it).",
+	Usage:   []string{"drain AGENT [flags]"},
+	Args:    []help.Arg{{Name: "AGENT", Desc: "The agent to drain."}},
+	Flags: []help.Flag{
+		{Name: "cap-minutes", Value: "N", Desc: "Minutes to wait for its current work.", Default: "60"},
+		{Name: "cancel", Desc: "Clear a drain left behind, so the agent accepts work again.", Default: "off"},
+	},
+	Notes: []string{"The gateway stays drained until it stops. A stopped VM is skipped, not booted."},
+})
 
-const stopHelp = `Usage:
-  troupe stop AGENT [--cap-minutes N]
-
-Stops the agent and keeps it stopped across reboots. Its current work finishes first: the
-gateway refuses new work and waits up to N minutes (default 60) for running work. Then the
-gateway unit is stopped and disabled, and the VM is stopped and its memory freed. If the
-current work does not finish in time, the agent keeps running untouched. Asks for sudo once.
-`
-
-const drainHelp = `Usage:
-  troupe drain AGENT [--cap-minutes N]
-  troupe drain AGENT --cancel
-
-Called by stop and other procedures before they stop a gateway. Makes the gateway refuse new
-work and waits until its current work is done (up to N minutes, default 60); the gateway
-stays drained until it is stopped. --cancel clears a drain left behind, so the agent accepts
-work again. Skips a stopped VM rather than booting it.
-`
-
-const gatewayHelp = `Usage:
-  troupe gateway stop AGENT
-
-The gateway unit's ExecStop. Stopping the host-side sbx exec client does not signal the
-gateway inside the VM, so this writes Hermes's planned-stop marker, sends it SIGTERM and
-waits up to 60 seconds for it to exit, then clears any drain.
-`
+var gatewayHelp = help.Render(help.Command{
+	Summary:  "Stop an agent's gateway inside its VM (the gateway unit's ExecStop).",
+	Usage:    []string{"gateway stop AGENT"},
+	Commands: []help.Row{{Name: "stop AGENT", Desc: "Stop the gateway: SIGTERM, then wait up to 60 seconds."}},
+	Args:     []help.Arg{{Name: "AGENT", Desc: "The agent whose gateway stops."}},
+})
 
 // lifecycleAgent builds the agent a lifecycle command acts on. Start and stop need the kits
 // root (the agent must be registered); drain and gateway stop run from units and other

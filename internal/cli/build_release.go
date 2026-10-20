@@ -6,6 +6,7 @@ import (
 	"flag"
 
 	"github.com/starknet-innovation/troupe/internal/config"
+	"github.com/starknet-innovation/troupe/internal/help"
 )
 
 // A release build has only the end-user commands and no kits root.
@@ -16,11 +17,7 @@ const devBuild = false
 
 const globalUsage = ""
 
-const createLocalUsage = ""
-
-const createLocalNote = ""
-
-const kitsNote = ""
+var globalFlags []help.Flag
 
 func kitsOption(*flag.FlagSet) *string { return new(string) }
 

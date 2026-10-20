@@ -18,6 +18,7 @@ import (
 	"github.com/starknet-innovation/troupe/internal/progress"
 	"github.com/starknet-innovation/troupe/internal/published"
 	"github.com/starknet-innovation/troupe/internal/registry"
+	"github.com/starknet-innovation/troupe/internal/sbx"
 )
 
 var (
@@ -338,5 +339,34 @@ func TestTheManagerIsAMemberID(t *testing.T) {
 	readLine = func(context.Context, string) (string, error) { return "Jane", nil }
 	if _, err := askSlackManager(e, printer); err == nil {
 		t.Fatal("three wrong answers accepted")
+	}
+}
+
+// The manager is asked right after the last Slack key, even when that key is optional and
+// skipped; skipped keys are never stored.
+func TestTheManagerIsAskedAfterASkippedSlackKey(t *testing.T) {
+	defer func(saved func(context.Context, string) (string, error)) { readLine = saved }(readLine)
+	defer func(saved func(context.Context) func(string) ([]byte, error)) { readSecret = saved }(readSecret)
+	kit := kitWithSlack(t)
+	os.WriteFile(filepath.Join(kit, "services.json"), []byte(`{"services":[
+ {"name":"slack-bot","prompt":"Bot","required":false,"slack":true,"delivery":"placeholder","env":"SLACK_BOT_TOKEN","hosts":["slack.com"],"placeholder":"p-{agent}"},
+ {"name":"other","prompt":"Other","required":false,"delivery":"native","domains":["api.example.com"]}]}`), 0o644)
+	var prompts []string
+	readSecret = func(context.Context) func(string) ([]byte, error) {
+		return func(prompt string) ([]byte, error) { prompts = append(prompts, prompt); return nil, nil }
+	}
+	readLine = func(_ context.Context, prompt string) (string, error) {
+		prompts = append(prompts, prompt)
+		return "U0MANAGER1", nil
+	}
+	var out bytes.Buffer
+	printer := &progress.Printer{Agent: "Jane", Location: time.UTC, Out: &out, Err: &out, Now: time.Now}
+	t.Chdir(t.TempDir())
+	k, err := askKeys(env{ctx: context.Background(), out: &out, err: &out}, printer, kit, "jane", "Jane", false, sbx.Runner{})
+	if err != nil || k.slackManager != "U0MANAGER1" || len(k.natives)+len(k.placeholders) != 0 {
+		t.Fatalf("%+v %v", k, err)
+	}
+	if len(prompts) != 3 || !strings.HasPrefix(prompts[1], "Manager's Slack member ID") {
+		t.Fatalf("prompts %q", prompts)
 	}
 }

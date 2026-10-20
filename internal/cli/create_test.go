@@ -16,16 +16,17 @@ func TestCreateArguments(t *testing.T) {
 		args []string
 		want string
 	}{
-		"sizes without --name":  {[]string{"create", "ada", "--cpu", "2"}, "--name"},
-		"a soul without --name": {[]string{"create", "ada", "--soul", "x.md"}, "--name"},
-		"no type":               {[]string{"create", "--name", "jane"}, "name one agent type"},
-		"two types":             {[]string{"create", "coder", "hermes", "--name", "jane"}, "name one agent type"},
-		"a name without an ID":  {[]string{"create", "hermes", "--name", "!!!"}, "at least one Latin letter or digit"},
-		"a name too long":       {[]string{"create", "hermes", "--name", strings.Repeat("a", 36)}, "longer than 35 characters"},
-		"a malformed type":      {[]string{"create", "../hermes", "--name", "jane"}, "malformed agent type"},
-		"a negative size":       {[]string{"create", "hermes", "--name", "jane", "--memory", "-1"}, "positive whole numbers"},
-		"a Lab's name":          {[]string{"create", "hermes", "--name", "hermes-lab"}, "a Lab's"},
-		"a reserved name":       {[]string{"create", "hermes", "--name", "collector"}, "troupe reserves"},
+		"no --name":            {[]string{"create", "coder"}, "give the new agent a name with --name"},
+		"sizes without --name": {[]string{"create", "coder", "--cpu", "2"}, "give the new agent a name with --name"},
+		"no type":              {[]string{"create", "--name", "jane"}, "name one agent type"},
+		"two types":            {[]string{"create", "coder", "hermes", "--name", "jane"}, "name one agent type"},
+		"a name without an ID": {[]string{"create", "hermes", "--name", "!!!"}, "at least one Latin letter or digit"},
+		"a name too long":      {[]string{"create", "hermes", "--name", strings.Repeat("a", 36)}, "longer than 35 characters"},
+		"a malformed type":     {[]string{"create", "../hermes", "--name", "jane"}, "TYPE must be coder or hermes"},
+		"an unknown type":      {[]string{"create", "other", "--name", "jane"}, "TYPE must be coder or hermes"},
+		"a negative size":      {[]string{"create", "hermes", "--name", "jane", "--memory", "-1"}, "positive whole numbers"},
+		"a Lab's name":         {[]string{"create", "hermes", "--name", "hermes-lab"}, "a Lab's"},
+		"a reserved name":      {[]string{"create", "hermes", "--name", "collector"}, "troupe reserves"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if code, _, errs := run(c.args...); code != 2 || !strings.Contains(errs, c.want) {

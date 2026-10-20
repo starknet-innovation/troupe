@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/starknet-innovation/troupe/internal/budget"
+	"github.com/starknet-innovation/troupe/internal/published"
 )
 
 // Level is how a requirement stands.
@@ -67,10 +68,11 @@ func Default(sandboxd string, units func() error) Host {
 }
 
 // One agent at the coder type's default size: what a machine must hold beyond its reserves.
-const (
-	agentCPUs      = 4
-	agentMemoryGiB = 8
-	agentDiskGiB   = 120
+var (
+	coder          = published.Coder().Defaults
+	agentCPUs      = coder.CPUs
+	agentMemoryGiB = coder.MemoryGiB
+	agentDiskGiB   = coder.RootGiB + coder.DockerGiB
 )
 
 // Check runs every check, hardware first.

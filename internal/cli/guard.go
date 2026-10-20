@@ -3,27 +3,24 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"time"
 
 	"github.com/starknet-innovation/troupe/internal/guard"
 	"github.com/starknet-innovation/troupe/internal/progress"
 )
 
-const guardHelp = `Usage:
-  troupe guard probe [--wait DURATION]
-  troupe guard check NAME
-
-  probe  passes only when systemd owns the running sandboxd and it answers: the unit's main
-         PID, the pidfile and the only holder of the control socket agree, and the
-         Docker-compatible list call succeeds. Run it before anything that calls sbx
-         yourself; sbx would otherwise spawn an unmanaged daemon. --wait retries until it
-         passes (the sbx-daemon unit waits for readiness this way).
-  check  exits 1 while NAME is suspended by an unresolved phase record (another tool on this
-         host holds a disposable copy of it). Gateway units run it as ExecCondition, so a
-         suspended agent is skipped, not failed; run it before execing into an agent yourself.
-
-Both print nothing when they pass.
-`
+var guardHelp = help.Render(help.Command{
+	Summary: "Probe sandboxd before using sbx, or check an agent is not suspended.",
+	Usage:   []string{"guard probe [flags]", "guard check NAME"},
+	Commands: []help.Row{
+		{Name: "probe", Desc: "Pass only when systemd owns the running sandboxd and it answers."},
+		{Name: "check NAME", Desc: "Exit 1 while another tool holds a copy of NAME (gateway units' ExecCondition)."},
+	},
+	Args:  []help.Arg{{Name: "NAME", Desc: "A sandbox name."}},
+	Flags: []help.Flag{{Name: "wait", Value: "DURATION", Desc: "Retry until it passes, for up to DURATION.", Default: "0, no retry", Only: "probe"}},
+	Notes: []string{"Run probe before any sbx command of your own. Both print nothing when they pass."},
+})
 
 func guardCommand(e env, args []string) int {
 	if helpRequested(args) {

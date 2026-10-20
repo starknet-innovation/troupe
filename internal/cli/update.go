@@ -5,29 +5,30 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"os"
 
 	"github.com/starknet-innovation/troupe/internal/agent"
 )
 
-const updateHelp = `Usage:
-  troupe update skills|scripts|soul AGENT [--dry-run] [--yes]
-
-Makes the agent's seeded skills, scripts or SOUL.md match the seeds in its kits, without a
-reseed. Lists the changes and asks first; restarts the agent gracefully if its skill list
-changes. Skills and scripts the agent created itself are never touched; a file it added
-inside a seeded skill's folder is removed with that skill's update, a copy kept. The agent's
-edits are told from older seed versions by what troupe last installed (its own receipts), so
-the agent needs a finished reset (or create).
-
-WARNING: overwrites the agent's own edits to these files; its copies are saved in
-~/.local/state/live-apply/AGENT/.
-
-  --dry-run  only list the changes
-  --yes      apply exactly what the last --dry-run listed, without asking
-
-Exit 3: the restart is still waiting on active work. Exit 4: the restart cut work off.
-`
+var updateHelp = help.Render(help.Command{
+	Summary: "Make an agent's seeded skills, scripts or SOUL.md match its kits' seeds.",
+	Usage:   []string{"update TARGET AGENT [flags]"},
+	Args: []help.Arg{
+		{Name: "TARGET", Desc: "What to update: skills, scripts or soul."},
+		{Name: "AGENT", Desc: "An agent in the kits root, after a finished create or reset."},
+	},
+	Flags: []help.Flag{
+		{Name: "dry-run", Desc: "Only list the changes.", Default: "off"},
+		{Name: "yes", Desc: "Apply exactly what the last --dry-run listed, without asking.", Default: "ask"},
+	},
+	Notes: []string{
+		"Overwrites the agent's own edits to these files; copies go to ~/.local/state/live-apply/AGENT/.",
+		"Skills the agent created are kept; a file it added inside a seeded skill goes with that skill.",
+		"Restarts the agent gracefully when its skill list changes.",
+		"Exit 3: the restart still waits on active work. Exit 4: the restart cut work off.",
+	},
+})
 
 func updateCommand(e env, args []string) int {
 	if helpRequested(args) {

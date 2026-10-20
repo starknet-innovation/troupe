@@ -11,9 +11,10 @@ import (
 
 // kitsSetting is the dev build's kits root: the folder holding a maintainer's agent kits.
 var kitsSetting = &Setting{
-	Key:    "kits",
-	stored: "string",
-	Help:   "the kits root (a maintainer's agent kits) to use when no --kits names one",
+	Key:     "kits",
+	stored:  "string",
+	Help:    "The kits root when --kits names none.",
+	Default: "none",
 	parse: func(text string) (any, error) {
 		root, err := filepath.Abs(text)
 		if err != nil {

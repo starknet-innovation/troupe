@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/starknet-innovation/troupe/internal/help"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,26 +27,16 @@ import (
 	"github.com/starknet-innovation/troupe/internal/sbx"
 )
 
-const harvestHelp = `Usage:
-  troupe harvest AGENT
-
-  Collects the skill edits AGENT made himself, before a reset, update or upgrade replaces them.
-  Read only: it never edits the seeds or the agent. The base of each seeded skill file is
-  what the seeds last wrote there: the last create or reset's seed manifest, then every
-  troupe update applied since. It runs the sandboxd probe and the pair guard before any sbx call,
-  and refuses unless the running VM is the last create or reset's, or the last resize's after it.
-
-  Prints one status line per file (changed_by_agent, changed_without_agent_record,
-  deleted_live, new_file, overwritten_by_update) and writes base, seed, live and the diffs
-  under a private ~/.cache/hermes-skill-harvest/AGENT/TIME/, with summary.json, then the
-  next step: blending the lessons into the kit's skills is yours (by hand or with an LLM),
-  and troupe upgrade AGENT (a published kit, after publishing a new version) or troupe
-  update skills AGENT (the kits root) replaces the agent's skills. A refusal prints
-  "blocked CLASS" on stderr and collects nothing.
-
-AGENT is any agent troupe knows: one of the kits root, or one it created from a published
-kit (its seeds are then the pinned kit's).
-`
+var harvestHelp = help.Render(help.Command{
+	Summary: "Collect an agent's own skill edits before a reset, update or upgrade replaces them.",
+	Usage:   []string{"harvest AGENT"},
+	Args:    []help.Arg{{Name: "AGENT", Desc: "Any agent troupe knows, of the kits root or a published kit."}},
+	Notes: []string{
+		"Read only: never changes the seeds or the agent. Runs the sandboxd probe before any sbx call.",
+		"Prints one status line per file; writes the diffs under ~/.cache/hermes-skill-harvest/AGENT/.",
+		"Blending the lessons into the kit's skills is yours. A refusal prints \"blocked CLASS\".",
+	},
+})
 
 // failure is a refusal: harvest prints "blocked CLASS" and collects nothing more.
 type failure string

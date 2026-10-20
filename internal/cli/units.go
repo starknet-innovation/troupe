@@ -10,26 +10,28 @@ import (
 	"strings"
 
 	"github.com/starknet-innovation/troupe"
+	"github.com/starknet-innovation/troupe/internal/help"
 )
 
-const unitsHelp = `Usage:
-  troupe units render UNIT
-
-Prints a systemd unit template with this host's values filled in: @TROUPE@ (this troupe
-binary), @USER@ and @HOME@ (the invoking user). Run it as that user, never as root, and
-install the result yourself, for example:
-
-  troupe units render sbx-daemon.service | sudo tee /etc/systemd/system/sbx-daemon.service
-
-Units: %s
-`
+func unitsHelp(names []string) string {
+	return help.Render(help.Command{
+		Summary:  "Print a systemd unit template with this host's values filled in (the installer uses it).",
+		Usage:    []string{"units render UNIT"},
+		Commands: []help.Row{{Name: "render UNIT", Desc: "Print UNIT for this troupe binary and the invoking user."}},
+		Args:     []help.Arg{{Name: "UNIT", Desc: "The unit: " + strings.Join(names, " or ") + "."}},
+		Notes: []string{
+			"Run it as the user who owns the agents, never as root, and install the result yourself:",
+			"troupe units render sbx-daemon.service | sudo tee /etc/systemd/system/sbx-daemon.service",
+		},
+	})
+}
 
 func units(e env, args []string) int {
 	names, err := unitNames()
 	if err != nil {
 		return fail(e, err)
 	}
-	help := fmt.Sprintf(unitsHelp, strings.Join(names, ", "))
+	help := unitsHelp(names)
 	if helpRequested(args) {
 		fmt.Fprint(e.out, help)
 		return 0

@@ -7,32 +7,108 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/starknet-innovation/troupe/internal/agent"
 	"github.com/starknet-innovation/troupe/internal/budget"
 	"github.com/starknet-innovation/troupe/internal/config"
+	"github.com/starknet-innovation/troupe/internal/help"
+	"github.com/starknet-innovation/troupe/internal/published"
 	"github.com/starknet-innovation/troupe/internal/registry"
 	"github.com/starknet-innovation/troupe/internal/secret"
 )
 
-const createHelp = `Usage:
-  troupe create TYPE --name NAME [--cpu N] [--memory GiB] [--storage GiB] [--soul FILE] [--avatar PATH|URL] [--force]
-` + createLocalUsage + `
-Creates a new agent from the latest published TYPE kit (the registry machine setting): it
-pins that kit version, asks for the kit's settings (Enter skips one) and the agent's keys
-(hidden; Enter skips an optional one) and stores the keys with the TPM, writes the agent's environment under troupe's data folder, then
-creates its VM, wires its keys and starts it. --cpu, --memory and --storage (the root disk)
-change the kit's default sizes; --soul gives the agent's SOUL.md instead of the kit's default.
-The first time, it asks for a registry token that can read the kits and stores it in Docker
-and sbx.
-` + createLocalNote + `
-It refuses a name in use. If it stops partway, run it again: it resumes. It asks for sudo.
+// createHelp is create's own help: the types, each with a help of its own (createTypeHelp).
+var createHelp = help.Render(help.Command{
+	Summary:  "Create a new agent from the latest published kit of its type, and start it.",
+	Usage:    []string{"create TYPE --name NAME [flags]"},
+	Args:     []help.Arg{{Name: "TYPE", Desc: "The agent type: " + typeList() + " (see Types)."}},
+	Sections: []help.Section{{Title: "Types", Rows: typeRows()}},
+})
 
---force confirms an agent over the machine's resource budget (troupe asks otherwise).
-`
+// createTypeHelp is one type's create help: its sizes, its SOUL and what create asks for.
+func createTypeHelp(t published.Type) string {
+	d := t.Defaults
+	var asks []help.Row
+	for _, a := range t.Asks {
+		state := "Required."
+		if a.Optional {
+			state = "Optional."
+		}
+		label := a.Label
+		if label == "" {
+			label = a.Name
+		}
+		asks = append(asks, help.Row{Name: label, Desc: a.Desc + " " + state})
+	}
+	return help.Render(help.Command{
+		Summary: "Create a new " + t.Name + " agent from the latest " + t.Name + " kit, and start it.",
+		Usage:   []string{"create " + t.Name + " --name NAME [flags]"},
+		Flags: []help.Flag{
+			{Name: "name", Value: "NAME", Desc: "The agent's name, kept as typed (at most 35 characters).", Required: true},
+			{Name: "cpu", Value: "N", Desc: "CPUs.", Default: strconv.Itoa(d.CPUs)},
+			{Name: "memory", Value: "GiB", Desc: "Memory in GiB.", Default: strconv.Itoa(d.MemoryGiB)},
+			{Name: "storage", Value: "GiB", Desc: "Root disk in GiB.", Default: strconv.Itoa(d.RootGiB)},
+			{Name: "soul", Value: "FILE", Desc: "The agent's SOUL.md.", Default: t.Soul},
+			{Name: "avatar", Value: "PATH|URL", Desc: "Profile picture: a PNG or JPEG file, or an https address.", Default: "none"},
+			{Name: "force", Desc: "Create even over the machine's resource budget.", Default: "ask"},
+		},
+		Sections: []help.Section{{Title: "Asks for, in order", Rows: asks}},
+		Notes: []string{
+			"Asks for sudo first.",
+			"The first time, also asks for a registry token that can read the kits.",
+			"If it stops partway, run it again: it resumes.",
+		},
+	})
+}
+
+// typeList is the types as help names them: "coder or hermes".
+func typeList() string {
+	var names []string
+	for _, t := range published.Types {
+		names = append(names, t.Name)
+	}
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
+}
+
+func typeRows() []help.Row {
+	var rows []help.Row
+	for _, t := range published.Types {
+		rows = append(rows, help.Row{Name: t.Name, Desc: t.Summary + " Help: troupe create " + t.Name + " --help."})
+	}
+	return rows
+}
+
+// typeHelpRequested is the type whose help "create TYPE --help" asks for: the first positional
+// argument, never a flag's value.
+func typeHelpRequested(args []string) (published.Type, bool) {
+	asked, first := false, ""
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--help" || a == "-help" || a == "-h":
+			asked = true
+		case strings.HasPrefix(a, "-"):
+			if name := strings.TrimLeft(a, "-"); !strings.Contains(name, "=") && name != "force" {
+				i++ // its value
+			}
+		case first == "":
+			first = a
+		}
+	}
+	t, ok := published.TypeNamed(first)
+	return t, ok && asked
+}
 
 func createCommand(e env, args []string) int {
+	if t, ok := typeHelpRequested(args); ok {
+		fmt.Fprint(e.out, createTypeHelp(t))
+		return 0
+	}
 	var f createFlags
 	rest, code, ok := subcommand(e, "create", createHelp, args, func(set *flag.FlagSet) {
 		set.StringVar(&f.name, "name", "", "")
@@ -47,21 +123,15 @@ func createCommand(e env, args []string) int {
 		return code
 	}
 	if len(rest) != 1 {
-		return usageError(e, createHelp, "create: name one agent type and --name, or one local agent")
+		return usageError(e, createHelp, "create: name one agent type")
+	}
+	if f.name == "" {
+		return usageError(e, createHelp, "create: give the new agent a name with --name")
 	}
 	if err := sizesInRange(f.cpus, f.memoryGiB, f.storageGiB); err != nil {
 		return usageError(e, createHelp, "create: %v", err)
 	}
-	if f.name != "" {
-		return createPublished(e, rest[0], f)
-	}
-	if !devBuild {
-		return usageError(e, createHelp, "create: name an agent type and give the new agent a name with --name")
-	}
-	if f.soul != "" || f.avatar != "" || f.cpus != 0 || f.memoryGiB != 0 || f.storageGiB != 0 {
-		return usageError(e, createHelp, "create: --cpu, --memory, --storage, --soul and --avatar need --name TYPE")
-	}
-	return runRecreate(e, rest[0], true, askBudget(f.force))
+	return createPublished(e, rest[0], f)
 }
 
 // budgetMode is whether a transaction checks the machine's budget first: not at all (a read
