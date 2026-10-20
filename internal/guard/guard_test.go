@@ -18,11 +18,12 @@ import (
 )
 
 // fakeDaemon is a sandboxd folder this test process serves: it holds the control socket and
-// answers the Docker-compatible list call; a stub systemctl reports mainPID.
+// answers the sandbox list on it; a stub systemctl reports mainPID.
 type fakeDaemon struct {
 	paths   Paths
 	control net.Listener
 	status  int
+	body    string
 	delay   time.Duration
 	mainPID int
 }
@@ -36,7 +37,7 @@ func newFakeDaemon(t *testing.T) *fakeDaemon {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	d := &fakeDaemon{paths: Paths{Pairs: filepath.Join(dir, "pairs"), Sandboxd: dir, DaemonUnit: "sbx-daemon.service"},
-		status: http.StatusOK, mainPID: os.Getpid()}
+		status: http.StatusOK, body: "[]", mainPID: os.Getpid()}
 
 	control, err := net.Listen("unix", filepath.Join(dir, "sandboxd.sock"))
 	if err != nil {
@@ -44,20 +45,16 @@ func newFakeDaemon(t *testing.T) *fakeDaemon {
 	}
 	t.Cleanup(func() { control.Close() })
 	d.control = control
-	docker, err := net.Listen("unix", filepath.Join(dir, "docker.sock"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/containers/json" {
+		if r.URL.Path != "/sandbox" {
 			http.NotFound(w, r)
 			return
 		}
 		time.Sleep(d.delay)
 		w.WriteHeader(d.status)
-		fmt.Fprint(w, "[]")
+		fmt.Fprint(w, d.body)
 	})}
-	go server.Serve(docker)
+	go server.Serve(control)
 	t.Cleanup(func() { server.Close() })
 
 	d.writePidfile(t, strconv.Itoa(os.Getpid())+"\n")
@@ -126,6 +123,8 @@ func TestProbeFails(t *testing.T) {
 			t.Cleanup(func() { second.Process.Kill(); second.Wait() })
 		},
 		"list call answers an error": func(t *testing.T, d *fakeDaemon) { d.status = http.StatusInternalServerError },
+		"list call answers no list":  func(t *testing.T, d *fakeDaemon) { d.body = `{"message":"Not Found"}` },
+		"list call answers null":     func(t *testing.T, d *fakeDaemon) { d.body = "null" },
 		"list call hangs": func(t *testing.T, d *fakeDaemon) {
 			old := listTimeout
 			listTimeout = 200 * time.Millisecond

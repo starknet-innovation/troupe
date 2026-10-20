@@ -28,7 +28,7 @@ import (
 type Paths struct {
 	// Pairs holds the maintenance lock and the phase records.
 	Pairs string
-	// Sandboxd is the daemon's state folder: pidfile, control socket, Docker-compatible socket.
+	// Sandboxd is the daemon's state folder: pidfile and control socket.
 	Sandboxd string
 	// DaemonUnit is the systemd unit that owns sandboxd.
 	DaemonUnit string
@@ -53,9 +53,10 @@ func Default() Paths {
 }
 
 // Probe passes only when systemd owns the running sandboxd and it answers: the unit's main
-// PID, the pidfile and the only process holding the control socket agree, and the
-// Docker-compatible list call succeeds. Never run sbx without it: sbx would otherwise spawn
-// an unmanaged daemon. A second holder (a leftover daemon, an inherited descriptor) fails it.
+// PID, the pidfile and the only process holding the control socket agree, and the sandbox
+// list on that socket (what sbx ls reads) answers. Never run sbx without it: sbx would
+// otherwise spawn an unmanaged daemon. A second holder (a leftover daemon, an inherited
+// descriptor) fails it. sbx 0.49.1 no longer serves the Docker API on docker.sock.
 func Probe(ctx context.Context, paths Paths) error {
 	unit, err := mainPID(ctx, paths.DaemonUnit)
 	if err != nil {
@@ -75,7 +76,7 @@ func Probe(ctx context.Context, paths Paths) error {
 	if len(holders) != 1 || !holders[unit] {
 		return fmt.Errorf("the sandboxd socket is held by %v, not only by %s (%d)", sortedPIDs(holders), paths.DaemonUnit, unit)
 	}
-	return listContainers(ctx, filepath.Join(paths.Sandboxd, "docker.sock"))
+	return listSandboxes(ctx, filepath.Join(paths.Sandboxd, "sandboxd.sock"))
 }
 
 // ProbeWait retries Probe until it passes or wait runs out (a unit start waiting for sandboxd).
@@ -174,7 +175,7 @@ func socketInodes(path string) (map[string]bool, error) {
 // listTimeout bounds the list call; a daemon that hangs is as unhealthy as one that is down.
 var listTimeout = 10 * time.Second
 
-func listContainers(ctx context.Context, socket string) error {
+func listSandboxes(ctx context.Context, socket string) error {
 	ctx, cancel := context.WithTimeout(ctx, listTimeout)
 	defer cancel()
 	client := http.Client{
@@ -186,7 +187,7 @@ func listContainers(ctx context.Context, socket string) error {
 		// Like curl without -L: a redirect is an answer, not something to follow.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost/containers/json?limit=1", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost/sandbox", nil)
 	if err != nil {
 		return err
 	}
@@ -198,9 +199,14 @@ func listContainers(ctx context.Context, socket string) error {
 	if response.StatusCode >= 400 {
 		return fmt.Errorf("sandboxd answered %s", response.Status)
 	}
-	// The whole answer must arrive within the deadline, as curl's did.
-	if _, err := io.Copy(io.Discard, response.Body); err != nil {
+	// The whole answer must arrive within the deadline, as curl's did, and be the list.
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
 		return fmt.Errorf("sandboxd answer cut off: %w", err)
+	}
+	var sandboxes []json.RawMessage
+	if err := json.Unmarshal(body, &sandboxes); err != nil || sandboxes == nil {
+		return errors.New("sandboxd answered something other than the sandbox list")
 	}
 	return nil
 }
