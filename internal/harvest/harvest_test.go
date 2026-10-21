@@ -402,7 +402,7 @@ func TestHarvestAPublishedAgent(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(h.dir, "config"))
 	data := filepath.Join(h.dir, "troupe")
 	kit := filepath.Join(data, "kits/coder-1.2.0")
-	write(t, filepath.Join(kit, "kit.json"), `{"reference":"ghcr.io/example/coder:1.2.0","type":"coder","version":"1.2.0","commit":"`+strings.Repeat("a", 40)+`"}`, 0o644)
+	write(t, filepath.Join(kit, "kit.json"), `{"reference":"ghcr.io/example/coder:1.2.0","type":"coder","version":"1.2.0","hermes":"0.22.2"}`, 0o644)
 	write(t, filepath.Join(kit, "files/home/.hermes", skill), base, 0o644)
 	write(t, filepath.Join(kit, "files/home/.hermes", notes), "notes\n", 0o644)
 	write(t, filepath.Join(data, "agents/ada/sbxenv.yaml"), "name: ada\nkits:\n  - \"ghcr.io/example/coder:1.2.0\"\n  - \".\"\n", 0o600)

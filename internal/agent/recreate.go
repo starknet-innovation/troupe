@@ -68,7 +68,7 @@ type preflightReceipt struct {
 	RecordedAt   string `json:"recorded_at"`
 	Agent        string `json:"agent"`
 	OldID        string `json:"old_id"`
-	TargetCommit string `json:"target_commit"`
+	TargetHermes string `json:"target_hermes"`
 	GatewayPID   string `json:"gateway_pid"`
 	Mode         string `json:"mode"`
 	SeedSHA      string `json:"seed_sha256"`
@@ -521,7 +521,7 @@ func (r *recreation) recordPreflight(ctx context.Context) error {
 	}
 	record, exists := records[r.Name]
 	pre := preflightReceipt{Schema: receiptSchema, RecordedAt: now(), Agent: r.Name, Mode: mode,
-		Create: r.o.Create, TargetCommit: r.o.Kit.Commit,
+		Create: r.o.Create, TargetHermes: r.o.Kit.Hermes,
 		SeedSHA: r.o.Kit.ManifestSHA(), Declarations: r.o.Kit.Declarations}
 	if r.o.Create {
 		if exists {
@@ -767,7 +767,7 @@ func (r *recreation) provision(ctx context.Context, step string) error {
 		return Failure{step, "new_identity_invalid"}
 	}
 	if err := writeReceipt(r.t.file("cutover.json"), map[string]any{"created_at": now(), "old_id": r.pre.OldID,
-		"new_id": newID, "target_commit": r.pre.TargetCommit, "state": "created"}); err != nil {
+		"new_id": newID, "target_hermes": r.pre.TargetHermes, "state": "created"}); err != nil {
 		return err
 	}
 	r.Printer.Print(step, progress.Info, "The new VM is running")

@@ -1,4 +1,4 @@
-# syntax=docker/sandbox-kit:3@sha256:e6a397771e865625047cf84256a914c7974b3e749d858259b5bc9c653ddb6f0d
+# syntax=docker/sandbox-kit:3
 # grace's own layer on the coder workload: his identity seeds.
 schemaVersion: "3"
 kind: mixin

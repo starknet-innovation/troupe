@@ -49,12 +49,12 @@ var pinned = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?(/
 const PublishedFile = "kit.json"
 
 // Published describes a published kit troupe has read: the pinned reference, the agent type
-// (the repository's last component, as sbx names it), the kit version and the Hermes commit.
+// (the repository's last component, as sbx names it), the kit version and the Hermes version.
 type Published struct {
 	Reference string `json:"reference"`
 	Type      string `json:"type"`
 	Version   string `json:"version"`
-	Commit    string `json:"commit"`
+	Hermes    string `json:"hermes"`
 }
 
 // KitFolder is where troupe keeps a pinned published kit's files.

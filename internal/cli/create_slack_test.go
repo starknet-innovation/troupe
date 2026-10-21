@@ -255,7 +255,7 @@ func TestAPublishedAgentWiresOnlyTheServicesItWasGiven(t *testing.T) {
 	kit := filepath.Join(data, "kits", "coder-1.3.1")
 	folder := filepath.Join(data, "agents/jane")
 	for name, text := range map[string]string{
-		filepath.Join(kit, "kit.json"): `{"reference":"` + ref + `","type":"coder","version":"1.3.1","commit":"` + strings.Repeat("b", 40) + `"}`,
+		filepath.Join(kit, "kit.json"): `{"reference":"` + ref + `","type":"coder","version":"1.3.1","hermes":"0.22.2"}`,
 		filepath.Join(kit, "services.json"): `{"services":[
  {"name":"venice","prompt":"Venice","required":true,"delivery":"native","domains":["api.venice.ai"]},
  {"name":"slack-bot","prompt":"bot","required":true,"slack":true,"delivery":"placeholder","env":"SLACK_BOT_TOKEN","hosts":["slack.com"],"placeholder":"sbx-cs-{agent}-slack-bot"},

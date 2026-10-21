@@ -175,15 +175,15 @@ func (r *rig) calls() string {
 	return string(data)
 }
 
-// testCommit is the Hermes commit the rig's workload dockerfile pins.
-const testCommit = "89abcdef0123456789abcdef0123456789abcdef"
+// testHermes is the Hermes version the rig's workload dockerfile names.
+const testHermes = "0.9.7"
 
 // kits writes a v3 workload kit (kits/coder) with Slack and both kit tools, and the agent ada
 // (agents/ada), a mixin on it.
 func (r *rig) kits() string {
 	root := filepath.Join(r.dir, "kits")
 	r.write("kits/kits/coder/coder.yaml", "# syntax=docker/sandbox-kit:3\nschemaVersion: \"3\"\nkind: workload\nversion: 1.0.0\nprovides: [\"coder@1.0.0\"]\n")
-	r.write("kits/kits/coder/coder.dockerfile", realPin)
+	r.write("kits/kits/coder/coder.dockerfile", realHermes)
 	r.write("kits/kits/coder/.dockerignore", "**/__pycache__\n")
 	r.write("kits/kits/coder/slack.env", "SLACK_WORKSPACE=T0AAAAAAAA\nSLACK_BOUNDARY_PUBLIC=C0BBBBBBBB\nSLACK_BOUNDARY_PRIVATE=C0CCCCCCCC\n")
 	r.write("kits/kits/coder/slack-app-manifest.json", `{"oauth_config":{"scopes":{"bot":["chat:write","im:history"]}}}`)
@@ -672,36 +672,36 @@ func TestCheckRefusesWhatPreflightWould(t *testing.T) {
 	}
 }
 
-// realPin is the shape the real kits use: the commit pinned once as a global ARG, then
+// realHermes is the shape the real kits use: the version named once as a global ARG, then
 // brought into the build stage by a bare ARG (Dockerfile scoping).
-var realPin = "ARG HERMES_GIT_SHA=" + testCommit + "\nFROM debian\nARG HERMES_GIT_SHA\n"
+var realHermes = "ARG HERMES_VERSION=" + testHermes + "\nFROM debian\nARG HERMES_VERSION\n"
 
-// The Hermes commit is read from the workload dockerfile's one ARG HERMES_GIT_SHA line, and
+// The Hermes version is read from the workload dockerfile's one ARG HERMES_VERSION line, and
 // recorded in the preflight receipt; anything else is refused before any change.
-func TestKitReadsThePinnedCommit(t *testing.T) {
+func TestKitReadsTheHermesVersion(t *testing.T) {
 	r := newRig(t)
-	if r.opts.Kit.Commit != testCommit {
-		t.Fatalf("commit %q", r.opts.Kit.Commit)
+	if r.opts.Kit.Hermes != testHermes {
+		t.Fatalf("hermes %q", r.opts.Kit.Hermes)
 	}
 	root := filepath.Join(r.dir, "kits")
 	for name, dockerfile := range map[string]string{
 		"missing":       "FROM debian\n",
-		"no value":      "FROM debian\nARG HERMES_GIT_SHA\n",
-		"twice, scoped": "ARG HERMES_GIT_SHA=" + testCommit + "\nFROM debian\nARG HERMES_GIT_SHA=" + testCommit + "\n",
-		"short":         "ARG HERMES_GIT_SHA=89abcdef\n",
-		"upper case":    "ARG HERMES_GIT_SHA=" + strings.ToUpper(testCommit) + "\n",
-		"trailing text": "ARG HERMES_GIT_SHA=" + testCommit + "x\n",
-		"twice":         "ARG HERMES_GIT_SHA=" + testCommit + "\nARG HERMES_GIT_SHA=" + testCommit + "\n",
-		"a branch":      "ARG HERMES_GIT_SHA=main\n",
+		"no value":      "FROM debian\nARG HERMES_VERSION\n",
+		"twice, scoped": "ARG HERMES_VERSION=" + testHermes + "\nFROM debian\nARG HERMES_VERSION=" + testHermes + "\n",
+		"short":         "ARG HERMES_VERSION=0.9\n",
+		"a tag":         "ARG HERMES_VERSION=v" + testHermes + "\n",
+		"trailing text": "ARG HERMES_VERSION=" + testHermes + "x\n",
+		"twice":         "ARG HERMES_VERSION=" + testHermes + "\nARG HERMES_VERSION=" + testHermes + "\n",
+		"a branch":      "ARG HERMES_VERSION=main\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			r.write("kits/kits/coder/coder.dockerfile", dockerfile)
-			if _, err := ReadKit(registry.Registry{Root: root}, "ada"); err == nil || !strings.Contains(err.Error(), "HERMES_GIT_SHA") {
+			if _, err := ReadKit(registry.Registry{Root: root}, "ada"); err == nil || !strings.Contains(err.Error(), "HERMES_VERSION") {
 				t.Fatalf("err %v", err)
 			}
 		})
 	}
-	r.write("kits/kits/coder/coder.dockerfile", realPin)
+	r.write("kits/kits/coder/coder.dockerfile", realHermes)
 	if err := os.Remove(filepath.Join(r.dir, "kits/kits/coder/coder.dockerfile")); err != nil {
 		t.Fatal(err)
 	}
@@ -713,7 +713,7 @@ func TestKitReadsThePinnedCommit(t *testing.T) {
 	r2.write("fail-create", "")
 	r2.run()
 	var pre map[string]any
-	if !readReceipt(r2.current("preflight.json"), &pre) || pre["target_commit"] != testCommit || pre["schema"] != "replacement-v3" {
+	if !readReceipt(r2.current("preflight.json"), &pre) || pre["target_hermes"] != testHermes || pre["schema"] != "replacement-v3" {
 		t.Fatalf("preflight receipt %v", pre)
 	}
 	for _, gone := range []string{"target_image", "image_id"} {
@@ -759,7 +759,7 @@ func TestAChangedDockerfileIsRefusedOnResume(t *testing.T) {
 	r.write("fail-create", "")
 	r.run()
 	os.Remove(filepath.Join(r.dir, "fail-create"))
-	r.write("kits/kits/coder/coder.dockerfile", "FROM debian:trixie\nARG HERMES_GIT_SHA="+testCommit+"\n")
+	r.write("kits/kits/coder/coder.dockerfile", "FROM debian:trixie\nARG HERMES_VERSION="+testHermes+"\n")
 	kit, err := ReadKit(registry.Registry{Root: filepath.Join(r.dir, "kits")}, "ada")
 	if err != nil {
 		t.Fatal(err)
@@ -825,8 +825,8 @@ func TestTheExampleKitReads(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if !commitPattern.MatchString(kit.Commit) || kit.Base != filepath.Join(root, "kits", "coder") {
-			t.Fatalf("%s: commit %q base %s", name, kit.Commit, kit.Base)
+		if !semver.MatchString(kit.Hermes) || kit.Base != filepath.Join(root, "kits", "coder") {
+			t.Fatalf("%s: hermes %q base %s", name, kit.Hermes, kit.Base)
 		}
 	}
 }
@@ -888,7 +888,7 @@ func (r *rig) published() string {
 	data := filepath.Join(r.dir, "data")
 	kit := registry.KitFolder(data, publishedRef)
 	rel := func(path string) string { p, _ := filepath.Rel(r.dir, path); return p }
-	r.write(rel(filepath.Join(kit, registry.PublishedFile)), `{"reference":"`+publishedRef+`","type":"coder","version":"1.2.0","commit":"`+testCommit+`"}`)
+	r.write(rel(filepath.Join(kit, registry.PublishedFile)), `{"reference":"`+publishedRef+`","type":"coder","version":"1.2.0","hermes":"`+testHermes+`"}`)
 	r.write(rel(filepath.Join(kit, "services.json")), `{"services":[{"name":"venice","prompt":"Venice API key","required":true,"delivery":"native","domains":["api.venice.ai"]}]}`)
 	r.write(rel(filepath.Join(kit, "files/home/.hermes/config.yaml")), "model: x\n")
 	r.write("data/agents/ada/sbxenv.yaml", "schemaVersion: \"1\"\nname: ada\nagent: coder\n\nkits:\n  - \""+publishedRef+"\"\n  - \".\"\n\nsandboxOptions:\n  cpus: 2\n  memory: 4g\n")
@@ -919,7 +919,7 @@ func TestCreateAPublishedAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if kit.Reference != publishedRef || kit.Commit != testCommit || kit.Slack != nil || kit.Setup != nil {
+	if kit.Reference != publishedRef || kit.Hermes != testHermes || kit.Slack != nil || kit.Setup != nil {
 		t.Fatalf("kit %+v", kit)
 	}
 	services, err := secret.Services("ada", []string{"venice"}, kit.Base)
@@ -961,9 +961,9 @@ func TestAPublishedKitsRecordIsPartOfItsDeclarations(t *testing.T) {
 	if first.Declarations == second.Declarations {
 		t.Fatal("the published kit's record is not declared")
 	}
-	os.WriteFile(record, []byte(strings.Replace(string(text), testCommit, "nope", 1)), 0o644)
+	os.WriteFile(record, []byte(strings.Replace(string(text), testHermes, "nope", 1)), 0o644)
 	if _, err := ReadKit(registry.Registry{Data: data}, "ada"); err == nil {
-		t.Fatal("read a published kit with no Hermes commit")
+		t.Fatal("read a published kit with no Hermes version")
 	}
 }
 

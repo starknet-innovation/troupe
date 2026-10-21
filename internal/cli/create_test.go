@@ -199,7 +199,7 @@ func publishedAgent(t *testing.T, h string) string {
 	kit := filepath.Join(data, "kits", "hermes-1.2.0")
 	folder := filepath.Join(data, "agents/jane")
 	for name, text := range map[string]string{
-		filepath.Join(kit, "kit.json"):                       `{"reference":"` + ref + `","type":"hermes","version":"1.2.0","commit":"` + strings.Repeat("b", 40) + `"}`,
+		filepath.Join(kit, "kit.json"):                       `{"reference":"` + ref + `","type":"hermes","version":"1.2.0","hermes":"0.22.2"}`,
 		filepath.Join(kit, "files/home/.hermes/config.yaml"): "x\n",
 		filepath.Join(folder, "sbxenv.yaml"):                 "schemaVersion: \"1\"\nname: jane\nagent: hermes\n\nkits:\n  - \"" + ref + "\"\n  - \".\"\n\nsandboxOptions:\n  skills: \"off\"\n  cpus: 4\n  memory: 6g\n",
 		filepath.Join(folder, "jane.yaml"):                   "kind: mixin\n",

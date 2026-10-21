@@ -35,7 +35,7 @@ type Image struct {
 	Reference string // REGISTRY/TYPE:VERSION
 	Type      string // the repository's last component: sbx names the kit after it
 	Version   string // the image's org.opencontainers.image.version label
-	Commit    string // the image's org.opencontainers.image.revision label: the Hermes commit
+	Hermes    string // the image's org.host.hermes.version label: the Hermes version
 }
 
 // ErrAccess means the registry refused this machine's Docker login (or there is none).
@@ -50,7 +50,6 @@ const (
 
 var (
 	semver    = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
-	commitSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	container = regexp.MustCompile(`^[0-9a-f]{12,64}$`)
 	// Refusals Docker prints for a missing or refused login.
 	refused = regexp.MustCompile(`(?i)unauthorized|denied|authentication required|\b401\b|\b403\b`)
@@ -90,7 +89,7 @@ func (d Docker) run(ctx context.Context, timeout time.Duration, out io.Writer, a
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// Resolve pulls repository:latest (REGISTRY/TYPE), reads the version and Hermes commit its
+// Resolve pulls repository:latest (REGISTRY/TYPE), reads the kit and Hermes versions its
 // labels name, and pins that version's own tag, which never moves: it pulls REGISTRY/TYPE:VERSION.
 func (d Docker) Resolve(ctx context.Context, repository string) (Image, error) {
 	latest := repository + ":latest"
@@ -98,7 +97,7 @@ func (d Docker) Resolve(ctx context.Context, repository string) (Image, error) {
 		return Image{}, err
 	}
 	out, err := d.run(ctx, time.Minute, nil, "image", "inspect", latest, "--format",
-		`{{index .Config.Labels "org.opencontainers.image.version"}} {{index .Config.Labels "org.opencontainers.image.revision"}}`)
+		`{{index .Config.Labels "org.opencontainers.image.version"}} {{index .Config.Labels "org.host.hermes.version"}}`)
 	if err != nil {
 		return Image{}, err
 	}
@@ -106,12 +105,12 @@ func (d Docker) Resolve(ctx context.Context, repository string) (Image, error) {
 	if len(fields) != 2 {
 		return Image{}, fmt.Errorf("%s: unreadable image labels", latest)
 	}
-	img := Image{Type: path.Base(repository), Version: fields[0], Commit: fields[1]}
+	img := Image{Type: path.Base(repository), Version: fields[0], Hermes: fields[1]}
 	switch {
 	case !semver.MatchString(img.Version):
 		return Image{}, fmt.Errorf("%s: no MAJOR.MINOR.PATCH version label", latest)
-	case !commitSHA.MatchString(img.Commit):
-		return Image{}, fmt.Errorf("%s: no Hermes commit in its revision label", latest)
+	case !semver.MatchString(img.Hermes):
+		return Image{}, fmt.Errorf("%s: no Hermes version label", latest)
 	}
 	img.Reference = repository + ":" + img.Version
 	if _, err := d.run(ctx, 60*time.Minute, nil, "pull", "--quiet", img.Reference); err != nil {
@@ -172,7 +171,7 @@ func (d Docker) Extract(ctx context.Context, data string, img Image) (string, er
 		}
 	}
 	record, err := json.MarshalIndent(registry.Published{Reference: img.Reference, Type: img.Type,
-		Version: img.Version, Commit: img.Commit}, "", "  ")
+		Version: img.Version, Hermes: img.Hermes}, "", "  ")
 	if err != nil {
 		return "", err
 	}
@@ -342,11 +341,11 @@ type Agent struct {
 	AvatarExt string
 }
 
-// The pinned build frontends every published agent's mixin uses, as the kits do.
+// The build frontends every published agent's mixin uses, as the kits do.
 const (
-	kitSyntax        = "docker/sandbox-kit:3@sha256:e6a397771e865625047cf84256a914c7974b3e749d858259b5bc9c653ddb6f0d"
-	dockerfileSyntax = "docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e"
-	busybox          = "docker.io/library/busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e"
+	kitSyntax        = "docker/sandbox-kit:3"
+	dockerfileSyntax = "docker/dockerfile:1.7"
+	busybox          = "docker.io/library/busybox:1.37"
 )
 
 // Write creates data/agents/NAME for a new agent and returns it; it refuses a folder already

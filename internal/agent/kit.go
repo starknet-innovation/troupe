@@ -22,9 +22,9 @@ import (
 type Kit struct {
 	Agent        string
 	Base, Folder string
-	// Commit is the Hermes commit the base kit's dockerfile pins (ARG HERMES_GIT_SHA); CPUs and
-	// MemoryGiB the agent's declared VM size.
-	Commit       string
+	// Hermes is the Hermes version the base kit's dockerfile names (ARG HERMES_VERSION); CPUs
+	// and MemoryGiB the agent's declared VM size.
+	Hermes       string
 	CPUs         int
 	MemoryGiB    int
 	RootGiB      int
@@ -68,8 +68,8 @@ var (
 	gibSize      = regexp.MustCompile(`^([1-9][0-9]*)g$`)
 	envLine      = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*=`)
 	plainSetting = regexp.MustCompile(`^\s*([a-z]+):\s*"?([^"#\s]+)"?\s*(#.*)?$`)
-	hermesSHA    = regexp.MustCompile(`^ARG HERMES_GIT_SHA=([0-9a-f]{40})$`)
-	commitSHA    = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	hermesArg    = regexp.MustCompile(`^ARG HERMES_VERSION=([0-9]+\.[0-9]+\.[0-9]+)$`)
+	semver       = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 )
 
 // ReadKit composes the agent's seeds and runs the generic checks every kit must pass: no path
@@ -92,14 +92,14 @@ func ReadKit(reg registry.Registry, agent string) (*Kit, error) {
 	k.ignore = filepath.Join(k.Folder, ".dockerignore")
 	if published, err := registry.ReadPublished(k.Base); err == nil {
 		// A published base: troupe's record of it stands in for its recipe files, which the
-		// image does not carry, and names the commit the image's revision label gave.
-		if !commitSHA.MatchString(published.Commit) {
-			return nil, fmt.Errorf("%s: no Hermes commit", filepath.Join(k.Base, registry.PublishedFile))
+		// image does not carry, and names the Hermes version the image's label gave.
+		if !semver.MatchString(published.Hermes) {
+			return nil, fmt.Errorf("%s: no Hermes version", filepath.Join(k.Base, registry.PublishedFile))
 		}
-		k.Commit, k.Reference = published.Commit, published.Reference
+		k.Hermes, k.Reference = published.Hermes, published.Reference
 		k.baseDescriptor = filepath.Join(k.Base, registry.PublishedFile)
 		k.baseDockerfile, k.baseIgnore = "", ""
-	} else if k.Commit, err = pinnedCommit(k.baseDockerfile); err != nil {
+	} else if k.Hermes, err = hermesVersion(k.baseDockerfile); err != nil {
 		return nil, err
 	}
 	cpus, err := setting(k.sbxenv, "cpus")
@@ -184,31 +184,31 @@ func setting(path, key string) (string, error) {
 	return "", fmt.Errorf("%s: no %s", path, key)
 }
 
-// pinnedCommit reads the Hermes commit a workload dockerfile pins: exactly one line
-// ARG HERMES_GIT_SHA=<40 lowercase hex>. A bare ARG HERMES_GIT_SHA only brings that global
-// value into a build stage (Dockerfile scoping), so it pins nothing and is skipped.
-func pinnedCommit(dockerfile string) (string, error) {
+// hermesVersion reads the Hermes version a workload dockerfile names: exactly one line
+// ARG HERMES_VERSION=MAJOR.MINOR.PATCH. A bare ARG HERMES_VERSION only brings that global
+// value into a build stage (Dockerfile scoping), so it names nothing and is skipped.
+func hermesVersion(dockerfile string) (string, error) {
 	data, err := os.ReadFile(dockerfile)
 	if err != nil {
 		return "", err
 	}
-	commit := ""
+	found := ""
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "ARG HERMES_GIT_SHA") || line == "ARG HERMES_GIT_SHA" {
+		if !strings.HasPrefix(line, "ARG HERMES_VERSION") || line == "ARG HERMES_VERSION" {
 			continue
 		}
-		m := hermesSHA.FindStringSubmatch(line)
-		if m == nil || commit != "" {
-			commit = ""
+		m := hermesArg.FindStringSubmatch(line)
+		if m == nil || found != "" {
+			found = ""
 			break
 		}
-		commit = m[1]
+		found = m[1]
 	}
-	if commit == "" {
-		return "", fmt.Errorf("%s: pin Hermes with exactly one line ARG HERMES_GIT_SHA=<40 hex commit>", dockerfile)
+	if found == "" {
+		return "", fmt.Errorf("%s: name Hermes with exactly one line ARG HERMES_VERSION=MAJOR.MINOR.PATCH", dockerfile)
 	}
-	return commit, nil
+	return found, nil
 }
 
 func gib(text string) (int, error) {

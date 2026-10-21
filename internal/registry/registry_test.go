@@ -414,7 +414,7 @@ func publishedData(t *testing.T) string {
 	data := t.TempDir()
 	kit := KitFolder(data, publishedRef)
 	for name, text := range map[string]string{
-		filepath.Join(kit, PublishedFile):                             `{"reference":"` + publishedRef + `","type":"coder","version":"1.2.0","commit":"` + strings.Repeat("a", 40) + `"}`,
+		filepath.Join(kit, PublishedFile):                             `{"reference":"` + publishedRef + `","type":"coder","version":"1.2.0","hermes":"0.22.2"}`,
 		filepath.Join(kit, "files/home/.hermes/config.yaml"):          "x\n",
 		filepath.Join(data, "agents/jane/sbxenv.yaml"):                publishedEnv,
 		filepath.Join(data, "agents/jane/files/home/.hermes/SOUL.md"): "# Jane\n",
@@ -455,7 +455,7 @@ func TestAPublishedAgentNeedsItsPinnedKitKept(t *testing.T) {
 	cases := map[string]func(data string){
 		"the kit is not kept": func(data string) { os.RemoveAll(KitFolder(data, publishedRef)) },
 		"the record names another": func(data string) {
-			os.WriteFile(filepath.Join(KitFolder(data, publishedRef), PublishedFile), []byte(`{"reference":"ghcr.io/other/coder:1.2.0","type":"coder","version":"1.2.0","commit":"x"}`), 0o600)
+			os.WriteFile(filepath.Join(KitFolder(data, publishedRef), PublishedFile), []byte(`{"reference":"ghcr.io/other/coder:1.2.0","type":"coder","version":"1.2.0","hermes":"x"}`), 0o600)
 		},
 		"the agent follows a tag": func(data string) {
 			os.WriteFile(filepath.Join(data, "agents/jane/sbxenv.yaml"), []byte(strings.Replace(publishedEnv, ":1.2.0", ":latest", 1)), 0o600)

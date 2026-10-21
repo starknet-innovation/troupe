@@ -40,7 +40,7 @@ setting (`troupe config set kits DIR`). Kits are Docker Sandbox v3 kits:
 
 - An agent type is a workload kit (`kits/coder`): a folder holding a descriptor named after it
   (`coder.yaml`, `kind: workload`; sbx names a local kit after its folder), its recipe
-  (`coder.dockerfile`, which pins Hermes with one line `ARG HERMES_GIT_SHA=<commit>`), its
+  (`coder.dockerfile`, which names Hermes with one line `ARG HERMES_VERSION=X.Y.Z`), its
   seeds under `files/home/.hermes` and optionally `tools/seed-check.py`, `tools/setup.py`,
   `secrets.json`, `slack.env` and `slack-app-manifest.json`.
 - An agent is a mixin on it plus its environment (`agents/ada`): `ada.yaml` (`kind: mixin`,

@@ -20,7 +20,7 @@ import (
 const (
 	repository = "ghcr.io/example/hermes"
 	reference  = repository + ":1.2.0"
-	commit     = "818c13be1dc4fd28987e1e881a9408224afd4535"
+	hermes     = "0.22.2"
 )
 
 // fakeDocker answers pull, image inspect, create, cp and rm like Docker, recording each call.
@@ -54,7 +54,7 @@ func newFake(t *testing.T) *fake {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", f.bin+":"+os.Getenv("PATH"))
-	f.set("inspect", `1.2.0 `+commit)
+	f.set("inspect", `1.2.0 `+hermes)
 	f.archive(complete())
 	return f
 }
@@ -110,7 +110,7 @@ func TestResolvePinsTheLatestVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (Image{Reference: reference, Type: "hermes", Version: "1.2.0", Commit: commit}); img != want {
+	if want := (Image{Reference: reference, Type: "hermes", Version: "1.2.0", Hermes: hermes}); img != want {
 		t.Fatalf("image %+v, want %+v", img, want)
 	}
 	// latest names the version; the agent is pinned to that version's own tag, pulled too.
@@ -122,11 +122,11 @@ func TestResolvePinsTheLatestVersion(t *testing.T) {
 
 func TestResolveRefusesAnImageItCannotPin(t *testing.T) {
 	cases := map[string]string{
-		"not a semantic version": `latest ` + commit,
-		"a leading zero":         `01.2.0 ` + commit,
-		"no version label":       ` ` + commit,
-		"no Hermes commit":       `1.2.0 abc`,
-		"a third field":          `1.2.0 ` + commit + ` x`,
+		"not a semantic version": `latest ` + hermes,
+		"a leading zero":         `01.2.0 ` + hermes,
+		"no version label":       ` ` + hermes,
+		"no Hermes version":      `1.2.0 abc`,
+		"a third field":          `1.2.0 ` + hermes + ` x`,
 	}
 	for name, line := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -153,7 +153,7 @@ func TestResolveTellsARefusedLoginApart(t *testing.T) {
 }
 
 func image() Image {
-	return Image{Reference: reference, Type: "hermes", Version: "1.2.0", Commit: commit}
+	return Image{Reference: reference, Type: "hermes", Version: "1.2.0", Hermes: hermes}
 }
 
 func TestExtractKeepsTheKitsFilesLikeALocalKit(t *testing.T) {
@@ -171,7 +171,7 @@ func TestExtractKeepsTheKitsFilesLikeALocalKit(t *testing.T) {
 		}
 	}
 	published, err := registry.ReadPublished(folder)
-	if err != nil || published != (registry.Published{Reference: reference, Type: "hermes", Version: "1.2.0", Commit: commit}) {
+	if err != nil || published != (registry.Published{Reference: reference, Type: "hermes", Version: "1.2.0", Hermes: hermes}) {
 		t.Fatalf("record %+v, %v", published, err)
 	}
 	if !strings.Contains(f.calls(), "rm 0123456789abcdef0123456789abcdef") {
@@ -379,7 +379,7 @@ func TestRepinRewritesOnlyThePin(t *testing.T) {
 	}
 	env, _ := os.ReadFile(filepath.Join(folder, "sbxenv.yaml"))
 	source, _ := os.ReadFile(filepath.Join(folder, "source.json"))
-	next := Image{Type: old.Type, Version: "9.9.9", Commit: old.Commit, Reference: strings.TrimSuffix(old.Reference, old.Version) + "9.9.9"}
+	next := Image{Type: old.Type, Version: "9.9.9", Hermes: old.Hermes, Reference: strings.TrimSuffix(old.Reference, old.Version) + "9.9.9"}
 	restore, err := Repin(folder, old.Reference, next)
 	if err != nil {
 		t.Fatal(err)

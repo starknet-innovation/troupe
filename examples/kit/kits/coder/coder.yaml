@@ -1,4 +1,4 @@
-# syntax=docker/sandbox-kit:3@sha256:e6a397771e865625047cf84256a914c7974b3e749d858259b5bc9c653ddb6f0d
+# syntax=docker/sandbox-kit:3
 # The workload kit every agent here builds on. sbx names a local kit after its folder, so this
 # descriptor is coder.yaml in kits/coder and its recipe is coder.dockerfile beside it.
 schemaVersion: "3"

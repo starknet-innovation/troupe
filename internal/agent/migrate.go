@@ -324,7 +324,7 @@ func (r *recreation) recordMigratePreflight(ctx context.Context) error {
 		return err
 	}
 	pre := preflightReceipt{Schema: receiptSchema, RecordedAt: now(), Agent: r.Name, Mode: migrateMode,
-		OldID: record.ID, GatewayPID: r.mainPID(), TargetCommit: r.o.Kit.Commit, Declarations: r.o.Kit.Declarations}
+		OldID: record.ID, GatewayPID: r.mainPID(), TargetHermes: r.o.Kit.Hermes, Declarations: r.o.Kit.Declarations}
 	if err := r.open(); err != nil {
 		return err
 	}
