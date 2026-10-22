@@ -2,12 +2,14 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/starknet-innovation/troupe/internal/doctor"
+	"github.com/starknet-innovation/troupe/internal/secret"
 )
 
 func TestCreateArguments(t *testing.T) {
@@ -54,6 +56,10 @@ func home(t *testing.T) (string, string) {
 	saved := machineCheck
 	machineCheck = func() []doctor.Line { return nil }
 	t.Cleanup(func() { machineCheck = saved })
+	// And it has a TPM, unless a test says otherwise.
+	savedTier := keyTier
+	keyTier = func() secret.Tier { return secret.TPM }
+	t.Cleanup(func() { keyTier = savedTier })
 	return home, bin
 }
 
@@ -293,5 +299,83 @@ func TestDoctorExitsOnFailuresOnlyAndNotesNeverBlockCreate(t *testing.T) {
 	run("create", "hermes", "--name", "jane")
 	if _, err := os.Stat(filepath.Join(bin, "sudo-calls")); err != nil {
 		t.Fatal("a note stopped create before sudo")
+	}
+}
+
+// Keys kept without a TPM need the user's yes, asked before sudo or any setup: a no, or no
+// terminal to ask on, stops create with nothing done. With a TPM, nothing is asked.
+func TestCreateAsksBeforeKeepingKeysWithoutATPM(t *testing.T) {
+	defer func(saved func(context.Context, string) (string, error)) { readLine = saved }(readLine)
+	for name, c := range map[string]struct {
+		tier    secret.Tier
+		answer  string
+		err     error
+		asked   bool
+		goesOn  bool
+		message string
+	}{
+		"a TPM":               {secret.TPM, "", nil, false, true, "Sealed by this machine's TPM"},
+		"host key, declined":  {secret.Host, "n", nil, true, false, "host key only"},
+		"host key, no answer": {secret.Host, "", nil, true, false, "host key only"},
+		"plain file, no tty":  {secret.File, "", errors.New("private_terminal_required"), true, false, "plain files"},
+		"host key, yes":       {secret.Host, "y", nil, true, true, "host key only"},
+		"plain file, yes":     {secret.File, "yes", nil, true, true, "plain files"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, bin := home(t)
+			keyTier = func() secret.Tier { return c.tier }
+			asked := false
+			readLine = func(_ context.Context, prompt string) (string, error) {
+				asked = prompt == "Keep this agent's keys this way? [y/N] "
+				return c.answer, c.err
+			}
+			code, out, errs := run("create", "hermes", "--name", "jane")
+			if asked != c.asked || !strings.Contains(out, c.message) {
+				t.Fatalf("asked %v: %s%s", asked, out, errs)
+			}
+			_, sudoErr := os.Stat(filepath.Join(bin, "sudo-calls"))
+			if c.goesOn != (sudoErr == nil) {
+				t.Fatalf("went on to sudo: %v: %s", sudoErr == nil, errs)
+			}
+			if !c.goesOn {
+				if code != 1 || !strings.Contains(errs, "need your yes") {
+					t.Fatalf("exit %d: %s", code, errs)
+				}
+				if _, err := os.Stat(filepath.Join(h, ".local/state/credentials/jane")); err == nil {
+					t.Fatal("a declined create claimed the keys folder")
+				}
+			}
+		})
+	}
+}
+
+// A resumed creation keeps the tier its keys folder records: it says that one, and asks only
+// when it is below the TPM, whatever this machine offers now.
+func TestAResumedCreateKeepsItsKeysTier(t *testing.T) {
+	defer func(saved func(context.Context, string) (string, error)) { readLine = saved }(readLine)
+	for name, c := range map[string]struct {
+		recorded, machine secret.Tier
+		asked             bool
+		message           string
+	}{
+		"plain files, now a TPM": {secret.File, secret.TPM, true, "plain files"},
+		"TPM, now host key only": {secret.TPM, secret.Host, false, "Sealed by this machine's TPM"},
+		"no record, now no TPM":  {"", secret.File, false, "Sealed by this machine's TPM"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, _ := home(t)
+			keyTier = func() secret.Tier { return c.machine }
+			keys := filepath.Join(h, ".local/state/credentials/jane")
+			os.MkdirAll(keys, 0o700)
+			if c.recorded != "" {
+				secret.SetTier(filepath.Dir(keys), "jane", c.recorded)
+			}
+			asked := false
+			readLine = func(context.Context, string) (string, error) { asked = true; return "n", nil }
+			_, out, errs := run("create", "hermes", "--name", "jane")
+			if asked != c.asked || !strings.Contains(out, c.message) {
+				t.Fatalf("asked %v: %s%s", asked, out, errs)
+			}
+		})
 	}
 }

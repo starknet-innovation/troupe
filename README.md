@@ -39,9 +39,9 @@ stops it):
 |---|---|---|
 | Hardware | an x86_64 CPU | fails |
 | Hardware | KVM (`/dev/kvm`) usable by you | fails |
-| Hardware | a TPM 2.0 (`/dev/tpmrm0`): every key is TPM encrypted | fails |
 | Hardware | room for one agent at the coder default (4 CPUs, 8 GiB memory, 120 GiB disk) beyond the reserves | fails |
-| Software | systemd 256 or newer with `systemd-creds` (one older than 259, the version troupe is tested on, is noted) | asks for your action |
+| Keys | how keys will be kept, strongest available ([key protection](#key-protection)) | noted below a TPM; `create` asks |
+| Software | systemd (one older than 259, the version troupe is tested on, is noted) | asks for your action |
 | Software | Docker with buildx | asks for your action |
 | Software | sbx 0.48 or newer | asks for your action |
 | Software | sudo | asks for your action |
@@ -61,7 +61,7 @@ names: the agent is composed from `REGISTRY/TYPE:VERSION`, whose tag never moves
 needs, its default sizes and SOUL, its tools and a copy of its seeds) in troupe's data folder,
 asks for each service's key in the kit's order, after the kit's line on what the key is and
 where to get it (hidden; Enter skips an optional one), and stores
-it with the TPM, writes the agent's environment to `~/.local/share/troupe/agents/NAME/`
+it as strongly as the machine allows ([key protection](#key-protection)), writes the agent's environment to `~/.local/share/troupe/agents/NAME/`
 (`sbxenv.yaml`, its mixin, `storage.env`, `source.json`), then runs the same create as below.
 `--cpu`, `--memory` and `--storage` change the kit's default sizes; `--soul FILE` replaces its
 default SOUL. Every `create` ends with a self-test: one message through the agent's own Hermes
@@ -167,12 +167,30 @@ as in every command, only confirms an agent over the machine's budget.
 
 ## Secrets
 
-`troupe secret set AGENT SERVICE` asks for a key without showing it, encrypts it with this
-machine's TPM (`systemd-creds`) and gives the agent's sandbox access to it; `troupe secret
-check AGENT` proves every key stored, decryptable and wired, without reading one. An agent's
+`troupe secret set AGENT SERVICE` asks for a key without showing it, stores it at the agent's
+[key protection](#key-protection) and gives the agent's sandbox access to it; `troupe secret
+check AGENT` proves every key stored, readable by sandboxd and wired, without reading one. An agent's
 services are those its kit declares (`services.json`): native ones, which sbx injects for the
 hosts named, and placeholders, which the agent sees as a stand-in value that sbx replaces on
 the way out.
+
+### Key protection
+
+Keys live under `~/.local/state/credentials/NAME/`, in private folders. `create` keeps each new
+agent's keys the strongest way the machine offers, records it in that folder's `tier` file
+(none means TPM: agents created before tiers), and keeps it for the agent's life:
+
+| Tier | When | Key file | sandboxd reads it with | A copy of the disk |
+|---|---|---|---|---|
+| TPM | `has-tpm2` reports full support (`systemd-analyze`, or `systemd-creds` on 256), systemd 256+ | `SERVICE.cred`, sealed by the TPM and the host key | `systemd-creds --user decrypt` | cannot read it |
+| Host key | `systemd-creds` without a usable TPM, systemd 256+ | `SERVICE.cred`, encrypted with the root-only host key | `systemd-creds --user decrypt` | can read it (the host key is on it) |
+| File | neither | `SERVICE.key`, plain, read only by you (`0400`) | `cat` | can read it |
+
+Below the TPM, `create` says what the keys will get and asks, before sudo or any other setup;
+anything but yes, or no terminal to ask on, stops it with nothing done. No flag skips that
+question. Each tier accepts only its own file format, so a weaker file never stands in for a
+stronger agent's key. In every tier, anything running as your user, or as root, can read the
+keys: the TPM protects against a copied disk, not against this machine's own accounts.
 
 ## Security model
 
@@ -211,13 +229,13 @@ An agent's environment lives in troupe's data folder (`$XDG_DATA_HOME/troupe`, e
 `~/.local/share/troupe`): `agents/NAME/` composes its published kit, pinned by version, and
 itself; troupe keeps that kit's files in `kits/TYPE-VERSION/`. Machine settings (`timezone`,
 `collector-timer`, `registry`, `slack-boundary-public`, `slack-boundary-private`) live in
-`~/.config/troupe/config.json`; change them with `troupe config`. Keys are TPM encrypted under
-`~/.local/state/credentials/NAME/`.
+`~/.config/troupe/config.json`; change them with `troupe config`. Keys are kept under
+`~/.local/state/credentials/NAME/` ([key protection](#key-protection)).
 
 ## Host and guest
 
 On the host troupe needs only Linux with systemd, `sbx` and sudo (`start` and `stop` ask for it
-once), `systemd-creds` with a TPM for `secret`, and the docker CLI with buildx for `create`,
+once), ideally `systemd-creds` with a TPM for keys ([key protection](#key-protection)), and the docker CLI with buildx for `create`,
 `reset` and `resize` (`create` pulls the agent's published kit to read it; `reset` and `resize`
 also build the agent's own small kit into the host's build cache, the one `sbx env create` uses,
 before the old VM is removed);

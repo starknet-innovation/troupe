@@ -62,6 +62,12 @@ func createPublished(e env, typ string, f createFlags) int {
 	if err := machineReady(printer); err != nil {
 		return fail(e, err)
 	}
+	// How the keys will be kept, and the user's yes to anything below the TPM, before sudo or
+	// any setup: a no leaves nothing behind.
+	tier, err := approveTier(e, printer, name)
+	if err != nil {
+		return fail(e, err)
+	}
 	// sudo first, before any work or other prompt, and kept fresh until the end: storing keys
 	// and the create itself need it, and a password prompt must never come midway.
 	stopSudo, err := askSudo(e.ctx)
@@ -139,6 +145,9 @@ func createPublished(e env, typ string, f createFlags) int {
 			os.RemoveAll(keys)
 		}
 	}()
+	if err := secret.SetTier(secret.DefaultRoot(), name, tier); err != nil {
+		return fail(e, err)
+	}
 
 	// The kit: latest, pinned, its files kept.
 	repository := machine.Registry + "/" + typ
@@ -290,7 +299,7 @@ type keys struct {
 
 var slackMember = regexp.MustCompile(`^[UW][A-Z0-9]{2,}$`)
 
-// askKeys asks for each service the kit declares, in its order, storing each key with the TPM;
+// askKeys asks for each service the kit declares, in its order, storing each key at the agent's tier;
 // Enter skips an optional one. At the kit's first Slack service it gives the Slack app's setup
 // first, and after the last one it asks for the agent's Slack manager.
 func askKeys(e env, printer *progress.Printer, kit, name, display string, avatar bool, runner sbx.Runner) (keys, error) {
@@ -341,7 +350,7 @@ func askKeys(e env, printer *progress.Printer, kit, name, display string, avatar
 	return k, nil
 }
 
-// store keeps one service's key with the TPM, to be wired when the agent is created.
+// store keeps one service's key at the agent's tier, to be wired when the agent is created.
 func (k *keys) store(e env, s secret.KitService, value []byte, name string, runner sbx.Runner) error {
 	svc := secret.Service{Name: s.Name}
 	if s.Delivery == "placeholder" {
@@ -630,6 +639,36 @@ func readSource(folder string) (source, error) {
 		return s, fmt.Errorf("%s: malformed", filepath.Join(folder, "source.json"))
 	}
 	return s, nil
+}
+
+// keyTier is the strongest key protection this machine offers; tests replace it.
+var keyTier = secret.DetectHere
+
+// approveTier states how the new agent's keys will be kept and, below the TPM, asks: the
+// default and any answer but yes, or no terminal to ask on, stops the creation. A resumed
+// creation keeps the tier its keys folder records, whatever the machine offers now.
+func approveTier(e env, printer *progress.Printer, name string) (secret.Tier, error) {
+	tier := keyTier()
+	if _, err := os.Lstat(filepath.Join(secret.DefaultRoot(), name)); err == nil {
+		recorded, err := (&secret.Store{Agent: name, Root: secret.DefaultRoot()}).Tier()
+		if err != nil {
+			return "", err
+		}
+		tier = recorded
+	}
+	if tier == secret.TPM {
+		printer.Print("keys", progress.OK, "Sealed by this machine's TPM")
+		return tier, nil
+	}
+	printer.Print("keys", progress.Info, strings.ToUpper(tier.Describe()[:1])+tier.Describe()[1:])
+	answer, err := readLine(e.ctx, "Keep this agent's keys this way? [y/N] ")
+	if errors.Is(err, secret.ErrInterrupted) {
+		return "", err
+	}
+	if err != nil || (answer != "y" && answer != "yes") {
+		return "", errors.New("the agent was not created: its keys need your yes to be kept without a TPM")
+	}
+	return tier, nil
 }
 
 // askSudo asks for sudo now and keeps the credential fresh until stop is called.

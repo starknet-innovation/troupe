@@ -26,8 +26,11 @@ type fakeHost struct {
 	out  bytes.Buffer
 }
 
-func ciphertext() string {
-	raw := append(append([]byte{}, header...), bytes.Repeat([]byte{7}, 120)...)
+func ciphertext() string { return sealed(header) }
+
+// sealed is a valid-looking ciphertext with the given format header.
+func sealed(h []byte) string {
+	raw := append(append([]byte{}, h...), bytes.Repeat([]byte{7}, 120)...)
 	return base64.StdEncoding.EncodeToString(raw)
 }
 
@@ -52,11 +55,12 @@ for a in "$@"; do case "$a" in encrypt) mode=encrypt ;; decrypt) mode=decrypt ;;
 if [ "$mode" = encrypt ]; then
   cat > "$d/plaintext"
   [ -f "$d/encrypt-bad" ] && { echo "bm90IGEgY2lwaGVydGV4dA=="; exit 0; }
+  case " $* " in *" --with-key=host "*) echo "`+sealed(hostHeader)+`"; exit 0 ;; esac
   echo "`+ciphertext()+`"; exit 0
 fi
 file=$(for a in "$@"; do case "$a" in /*) echo "$a" ;; esac; done | head -1)
 [ -f "$d/decrypt-bad" ] && exit 1
-grep -q "`+ciphertext()[:20]+`" "$file" || exit 1
+grep -q -e "`+ciphertext()[:20]+`" -e "`+sealed(hostHeader)[:20]+`" "$file" || exit 1
 cat "$d/plaintext" 2>/dev/null
 exit 0
 `)
@@ -408,5 +412,154 @@ func TestAnUnbornStoreNeverAsksSandboxd(t *testing.T) {
 	wired, _, err := s.Set(context.Background(), "venice")
 	if err != nil || wired || strings.Contains(h.read("calls"), "sbx ") {
 		t.Fatalf("wired %v err %v calls:\n%s", wired, err, h.read("calls"))
+	}
+}
+
+// tiered is a store whose agent's creation chose tier.
+func (h *fakeHost) tiered(tier Tier) *Store {
+	h.t.Helper()
+	os.MkdirAll(filepath.Join(h.root, "ada"), 0o700)
+	if err := SetTier(h.root, "ada", tier); err != nil {
+		h.t.Fatal(err)
+	}
+	return h.store()
+}
+
+// An agent with no recorded tier was created before tiers: its keys are TPM sealed.
+func TestNoRecordedTierMeansTPM(t *testing.T) {
+	h := newFakeHost(t)
+	s := h.store()
+	if tier, err := s.Tier(); err != nil || tier != TPM {
+		t.Fatalf("tier %q err %v", tier, err)
+	}
+	if _, _, err := s.Set(context.Background(), "venice"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(h.read("calls"), "--with-key=host+tpm2 --tpm2-pcrs= --tpm2-public-key-pcrs=") {
+		t.Fatalf("calls:\n%s", h.read("calls"))
+	}
+}
+
+func TestHostTierEncryptsWithTheHostKeyOnly(t *testing.T) {
+	h := newFakeHost(t)
+	s := h.tiered(Host)
+	if _, _, err := s.Set(context.Background(), "venice"); err != nil {
+		t.Fatal(err)
+	}
+	calls := h.read("calls")
+	if !strings.Contains(calls, "sudo -n systemd-creds --uid=") || !strings.Contains(calls, " --with-key=host --no-ask-password") || strings.Contains(calls, "tpm2") {
+		t.Fatalf("calls:\n%s", calls)
+	}
+	file := filepath.Join(h.root, "ada", "venice.cred")
+	if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("ciphertext %v %v", info, err)
+	}
+	if results, _ := s.Check(context.Background()); results[0].Problem != "" {
+		t.Fatalf("results %+v", results)
+	}
+}
+
+// The plain file tier writes the key itself, read only by the host user, without sudo; sandboxd
+// reads it with cat.
+func TestFileTierKeepsAPlainFileOnlyItsOwnerCanRead(t *testing.T) {
+	h := newFakeHost(t)
+	s := h.tiered(File)
+	if _, _, err := s.Set(context.Background(), "venice"); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(h.root, "ada", "venice.key")
+	info, err := os.Stat(file)
+	if err != nil || info.Mode().Perm() != 0o400 {
+		t.Fatalf("key file %v %v", info, err)
+	}
+	if data, _ := os.ReadFile(file); string(data) != planted {
+		t.Fatal("the key file does not hold the key")
+	}
+	calls := h.read("calls")
+	if strings.Contains(calls, "sudo") || strings.Contains(calls, "systemd-creds") {
+		t.Fatalf("calls:\n%s", calls)
+	}
+	if !strings.Contains(calls, "sbx secret set venice --sandbox ada --command cat "+file+" --refresh") {
+		t.Fatalf("wiring:\n%s", calls)
+	}
+	for _, place := range []string{calls, h.read("native.log"), h.out.String()} {
+		if strings.Contains(place, planted) {
+			t.Fatal("the secret leaked into an argument list, log or output")
+		}
+	}
+	// A rotation replaces the read only file.
+	s.ReadSecret = func(string) ([]byte, error) { return []byte("sk-ROTATED"), nil }
+	if _, _, err := s.Set(context.Background(), "venice"); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(file); string(data) != "sk-ROTATED" {
+		t.Fatal("the rotation did not replace the key")
+	}
+	if results, _ := s.Check(context.Background()); results[0].Problem != "" {
+		t.Fatalf("results %+v", results)
+	}
+	os.Chmod(file, 0o600)
+	if results, _ := s.Check(context.Background()); results[0].Problem != "unsafe_file" {
+		t.Fatalf("a writable key file passed: %+v", results[0])
+	}
+}
+
+// Each tier accepts only its own format: a weaker file never stands in for a stronger one's.
+func TestEachTierAcceptsOnlyItsOwnFormat(t *testing.T) {
+	for name, c := range map[string]struct {
+		tier    Tier
+		file    string
+		content string
+		mode    os.FileMode
+	}{
+		"host ciphertext for a TPM agent": {TPM, "venice.cred", sealed(hostHeader), 0o600},
+		"TPM ciphertext for a host agent": {Host, "venice.cred", ciphertext(), 0o600},
+		"plain key for a TPM agent":       {TPM, "venice.cred", planted, 0o600},
+		"plain key for a host agent":      {Host, "venice.cred", planted, 0o600},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newFakeHost(t)
+			s := h.tiered(c.tier)
+			os.WriteFile(filepath.Join(h.root, "ada", c.file), []byte(c.content), c.mode)
+			if results, _ := s.Check(context.Background()); results[0].Problem != "wrong_format" {
+				t.Fatalf("results %+v", results)
+			}
+			if err := s.Sources(); err == nil || !strings.Contains(err.Error(), "wrong_format") {
+				t.Fatalf("sources: %v", err)
+			}
+		})
+	}
+	// A file agent reads only its .key file: a ciphertext beside it is not its key.
+	h := newFakeHost(t)
+	s := h.tiered(File)
+	os.WriteFile(filepath.Join(h.root, "ada", "venice.cred"), []byte(ciphertext()), 0o600)
+	if results, _ := s.Check(context.Background()); results[0].Problem != "missing" {
+		t.Fatalf("results %+v", results)
+	}
+}
+
+func TestAnUnknownTierIsRefused(t *testing.T) {
+	h := newFakeHost(t)
+	s := h.tiered(Tier("cloud"))
+	if _, _, err := s.Set(context.Background(), "venice"); err == nil || err.Error() != "unknown_key_tier" {
+		t.Fatalf("err %v", err)
+	}
+	if strings.Contains(h.read("calls"), "encrypt") {
+		t.Fatal("stored a key under an unknown tier")
+	}
+	if results, _ := s.Check(context.Background()); results[0].Problem != "unknown_key_tier" {
+		t.Fatalf("results %+v", results)
+	}
+	if err := s.Sources(); err == nil {
+		t.Fatal("sources passed an unknown tier")
+	}
+	// A marker that is not a small regular file (here, a link to one saying file) is refused too.
+	elsewhere := filepath.Join(t.TempDir(), "tier")
+	os.WriteFile(elsewhere, []byte("file\n"), 0o600)
+	marker := filepath.Join(h.root, "ada", "tier")
+	os.Remove(marker)
+	os.Symlink(elsewhere, marker)
+	if _, err := s.Tier(); err == nil || err.Error() != "unknown_key_tier" {
+		t.Fatalf("a linked marker: %v", err)
 	}
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/starknet-innovation/troupe/internal/budget"
 	"github.com/starknet-innovation/troupe/internal/published"
+	"github.com/starknet-innovation/troupe/internal/secret"
 )
 
 // Level is how a requirement stands.
@@ -41,7 +42,6 @@ type Line struct {
 type Host struct {
 	Arch     string // runtime.GOARCH
 	KVM      string // /dev/kvm
-	TPM      string // /dev/tpmrm0
 	Budget   budget.Paths
 	Measure  func(budget.Paths) budget.Host                    // budget.Measure; tests give fixed figures
 	Run      func(name string, args ...string) (string, error) // a program's standard output
@@ -52,7 +52,7 @@ type Host struct {
 // Default is this machine.
 func Default(sandboxd string, units func() error) Host {
 	return Host{
-		Arch: runtime.GOARCH, KVM: "/dev/kvm", TPM: "/dev/tpmrm0",
+		Arch: runtime.GOARCH, KVM: "/dev/kvm",
 		Budget:  budget.Paths{Meminfo: "/proc/meminfo", Proc: "/proc", Sandboxd: sandboxd},
 		Measure: budget.Measure,
 		Run: func(name string, args ...string) (string, error) {
@@ -77,7 +77,7 @@ var (
 
 // Check runs every check, hardware first.
 func Check(h Host) []Line {
-	lines := []Line{arch(h), kvm(h), tpm(h), room(h)}
+	lines := []Line{arch(h), kvm(h), keys(h), room(h)}
 	return append(lines, systemd(h), docker(h), sbxVersion(h), sudo(h), units(h))
 }
 
@@ -111,11 +111,14 @@ func kvm(h Host) Line {
 	return Line{"kvm", OK, h.KVM + " is usable"}
 }
 
-func tpm(h Host) Line {
-	if _, err := os.Stat(h.TPM); err != nil {
-		return Line{"tpm", Fail, h.TPM + " is missing: troupe encrypts every key with a TPM 2.0; enable it in the firmware, or on EC2 use an AMI registered with NitroTPM"}
+// keys is the strongest protection this machine gives agents' keys. Anything below the TPM is
+// a note, never in the way: create states it and asks before it stores a key.
+func keys(h Host) Line {
+	tier := secret.Detect(h.Run)
+	if tier == secret.TPM {
+		return Line{"keys", OK, "TPM 2.0: " + tier.Describe()}
 	}
-	return Line{"tpm", OK, "TPM 2.0 at " + h.TPM}
+	return Line{"keys", Note, tier.Describe() + "; create asks before using it. TPM sealing needs " + tier.Upgrade()}
 }
 
 // room is one agent at the default size against an empty machine, with the reserves create uses:
@@ -158,17 +161,11 @@ func systemd(h Host) Line {
 	if err != nil || version == 0 {
 		return Line{"systemd", Warn, "systemd was not found: troupe runs each agent's gateway as a systemd unit"}
 	}
-	if _, err := h.Run("systemd-creds", "--version"); err != nil {
-		return Line{"systemd", Warn, "systemd-creds was not found: troupe encrypts keys with it"}
-	}
-	// troupe encrypts with systemd-creds --uid and decrypts with --user, both from systemd 256.
-	if version < 256 {
-		return Line{"systemd", Warn, fmt.Sprintf("systemd %d is older than 256: troupe's key encryption needs systemd-creds --user (256 or newer)", version)}
-	}
+	// The keys line says what an older systemd, or one without systemd-creds, means for keys.
 	if version < 259 {
 		return Line{"systemd", Note, fmt.Sprintf("systemd %d is older than 259, the version troupe is tested on", version)}
 	}
-	return Line{"systemd", OK, fmt.Sprintf("systemd %d with systemd-creds", version)}
+	return Line{"systemd", OK, fmt.Sprintf("systemd %d", version)}
 }
 
 func docker(h Host) Line {

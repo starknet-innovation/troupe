@@ -12,11 +12,11 @@ import (
 )
 
 var secretHelp = help.Render(help.Command{
-	Summary: "Store an agent's API keys encrypted, and give its sandbox access to them.",
+	Summary: "Store an agent's API keys, as strongly as this machine allows, and give its sandbox access to them.",
 	Usage:   []string{"secret set AGENT SERVICE", "secret check AGENT"},
 	Commands: []help.Row{
-		{Name: "set AGENT SERVICE", Desc: "Ask for a key (hidden), encrypt it with the TPM and wire it. Adds or rotates."},
-		{Name: "check AGENT", Desc: "Check every key the agent needs is stored, decryptable and wired."},
+		{Name: "set AGENT SERVICE", Desc: "Ask for a key (hidden), store it at the agent's key protection and wire it. Adds or rotates."},
+		{Name: "check AGENT", Desc: "Check every key the agent needs is stored, readable and wired."},
 	},
 	Args: []help.Arg{
 		{Name: "AGENT", Desc: "The agent."},
@@ -75,9 +75,9 @@ func secretCommand(e env, args []string) int {
 		for _, r := range results {
 			switch {
 			case r.Problem == "" && r.Wired:
-				printer.Print("secret "+r.Service, progress.OK, "Stored, decrypts, wired")
+				printer.Print("secret "+r.Service, progress.OK, "Stored, readable, wired")
 			case r.Problem == "":
-				printer.Print("secret "+r.Service, progress.OK, "Stored, decrypts; the sandbox does not exist yet")
+				printer.Print("secret "+r.Service, progress.OK, "Stored, readable; the sandbox does not exist yet")
 			default:
 				printer.Print("secret "+r.Service, progress.Failed, r.Problem)
 				failed++

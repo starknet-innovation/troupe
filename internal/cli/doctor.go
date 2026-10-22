@@ -20,8 +20,9 @@ var doctorHelp = help.Render(help.Command{
 	Summary: "Check whether this machine can host agents, one line per requirement.",
 	Usage:   []string{"doctor"},
 	Notes: []string{
-		"Fails without the hardware: an x86_64 CPU, KVM, a TPM 2.0, room for one coder agent.",
-		"Asks for your action on software: systemd 256+, Docker buildx, sbx 0.48+, sudo, troupe's units.",
+		"Fails without the hardware: an x86_64 CPU, KVM, room for one coder agent.",
+		"Says how keys are kept: sealed by a TPM 2.0, else the host key only (systemd-creds, systemd 256+), else plain files.",
+		"Asks for your action on software: systemd, Docker buildx, sbx 0.48+, sudo, troupe's units.",
 		"Exit 1 on any failure. create runs the same checks first.",
 	},
 })

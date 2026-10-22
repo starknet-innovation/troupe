@@ -1,7 +1,7 @@
-// Package secret keeps each agent's API keys encrypted on the host with the machine's TPM and
-// gives the agent's sandbox access to them. A key is never shown, printed or logged: sandboxd
-// decrypts it on demand and its proxy injects it, so the agent itself only ever sees a
-// placeholder.
+// Package secret keeps each agent's API keys on the host, as strongly as the machine allows
+// (see Tier), and gives the agent's sandbox access to them. A key is never shown, printed or
+// logged: sandboxd reads it on demand and its proxy injects it, so the agent itself only ever
+// sees a placeholder.
 package secret
 
 import (
@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -168,6 +169,77 @@ func Services(agent string, native []string, base string) ([]Service, error) {
 	return services, nil
 }
 
+// Tier is how an agent's keys are kept on this host, strongest first. create picks the
+// strongest the machine offers and asks before anything weaker than TPM.
+type Tier string
+
+const (
+	TPM  Tier = "tpm"  // systemd-creds, sealed by the TPM and the host key
+	Host Tier = "host" // systemd-creds, the host key only: a copy of the disk can read them
+	File Tier = "file" // a plain file only the host user can read
+)
+
+// Describe is what an agent's keys get at this tier, for a line people read.
+func (t Tier) Describe() string {
+	switch t {
+	case TPM:
+		return "keys are sealed by this machine's TPM"
+	case Host:
+		return "no usable TPM: keys are encrypted with the host key only, so anyone with a copy of this disk can read them"
+	}
+	return "no systemd-creds from systemd 256 or newer: keys are plain files only your user can read, so anyone with a copy of this disk can read them"
+}
+
+// Upgrade is what this machine needs for TPM sealing, from this tier.
+func (t Tier) Upgrade() string {
+	if t == File {
+		return "systemd 256 or newer with systemd-creds, and a TPM 2.0"
+	}
+	return "a TPM 2.0: enable it in the firmware, or on EC2 use an AMI registered with NitroTPM"
+}
+
+var firstNumber = regexp.MustCompile(`[0-9]+`)
+
+// Detect is the strongest tier this machine offers. run is a program's standard output.
+func Detect(run func(name string, args ...string) (string, error)) Tier {
+	out, err := run("systemctl", "--version")
+	version, _ := strconv.Atoi(firstNumber.FindString(out))
+	// sandboxd runs as the host user, so it decrypts with systemd-creds --user, from systemd 256.
+	if err != nil || version < 256 {
+		return File
+	}
+	if _, err := run("systemd-creds", "--version"); err != nil {
+		return File
+	}
+	// has-tpm2 moved from systemd-creds to systemd-analyze in 257; 0 means full support
+	// (firmware, driver, system, subsystem, libraries).
+	for _, tool := range []string{"systemd-analyze", "systemd-creds"} {
+		if _, err := run(tool, "has-tpm2", "--quiet"); err == nil {
+			return TPM
+		}
+	}
+	return Host
+}
+
+// DetectHere is Detect on this machine, each program with a deadline.
+func DetectHere() Tier {
+	return Detect(func(name string, args ...string) (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, name, args...).Output()
+		return string(out), err
+	})
+}
+
+// tierFile records an agent's tier in its keys folder. Agents created before tiers have none:
+// theirs is TPM.
+const tierFile = "tier"
+
+// SetTier records the tier create chose, in the agent's keys folder (which create made).
+func SetTier(root, agent string, t Tier) error {
+	return os.WriteFile(filepath.Join(root, agent, tierFile), []byte(string(t)+"\n"), 0o600)
+}
+
 // Store is an agent's secrets on this host.
 type Store struct {
 	// Agent is the sandbox the secrets are wired to.
@@ -201,23 +273,63 @@ func (s *Store) service(name string) (Service, error) {
 	return Service{}, fmt.Errorf("%s has no service %q; its services: %s", s.Agent, name, strings.Join(names, ", "))
 }
 
-// File is where a service's ciphertext lives; Name is its systemd credential name.
-func (s *Store) File(svc Service) string { return filepath.Join(s.Root, s.Agent, svc.Name+".cred") }
+// Tier is the agent's tier, as its creation recorded it.
+func (s *Store) Tier() (Tier, error) {
+	path := filepath.Join(s.Root, s.Agent, tierFile)
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return TPM, nil
+	}
+	if err != nil || !info.Mode().IsRegular() || owner(info) != os.Getuid() || info.Size() > 16 {
+		return "", Failure{"unknown_key_tier"}
+	}
+	data, _ := os.ReadFile(path)
+	switch t := Tier(strings.TrimSpace(string(data))); t {
+	case TPM, Host, File:
+		return t, nil
+	}
+	return "", Failure{"unknown_key_tier"}
+}
+
+// tier is the agent's tier where a failure has already been reported (Set and Check read it
+// first): TPM when unreadable.
+func (s *Store) tier() Tier {
+	if t, err := s.Tier(); err == nil {
+		return t
+	}
+	return TPM
+}
+
+// File is where a service's key lives; Name is its systemd credential name.
+func (s *Store) File(svc Service) string {
+	if s.tier() == File {
+		return filepath.Join(s.Root, s.Agent, svc.Name+".key")
+	}
+	return filepath.Join(s.Root, s.Agent, svc.Name+".cred")
+}
 func (s *Store) Name(svc Service) string { return s.Agent + "-" + svc.Name }
 
-// Command is how sandboxd decrypts the key on demand, as the host user.
+// Command is how sandboxd reads the key on demand, as the host user.
 func (s *Store) Command(svc Service) string {
+	if s.tier() == File {
+		return "cat " + s.File(svc)
+	}
 	return fmt.Sprintf("systemd-creds --user --no-ask-password --name=%s decrypt %s -", s.Name(svc), s.File(svc))
 }
 
 // header starts every ciphertext systemd 259 writes for host+tpm2 user-scoped credentials
-// (AES-256-GCM, HOST_AND_TPM2_HMAC_SCOPED, no signed PCR policy). Anything else, including a
-// host-only or null-key ciphertext, is refused.
-var header, _ = hex.DecodeString("ef4ac13679a9480ea7db68897f9f165d")
+// (AES-256-GCM, HOST_AND_TPM2_HMAC_SCOPED, no signed PCR policy); hostHeader, for host-only
+// user-scoped ones (HOST_SCOPED), both from systemd's creds-util.h. Each tier accepts only its
+// own, so a weaker ciphertext never stands in for a TPM-sealed one.
+var (
+	header, _     = hex.DecodeString("ef4ac13679a9480ea7db68897f9f165d")
+	hostHeader, _ = hex.DecodeString("55b9ed1d38594d43a8319d2ebb332ac6")
+)
 
-// checkFile accepts only a private regular file in private folders, holding a TPM-sealed
-// ciphertext; it reads the format, never the secret.
-func checkFile(path string) error {
+// checkFile accepts only a private regular file in private folders, holding the tier's format:
+// a ciphertext with its header, or for File any non-empty content, read only by its owner. It
+// reads a ciphertext's format; a plain key it only opens, never reading the secret.
+func checkFile(path string, tier Tier) error {
 	uid := os.Getuid()
 	for _, dir := range []string{filepath.Dir(filepath.Dir(path)), filepath.Dir(path)} {
 		info, err := os.Lstat(dir)
@@ -232,16 +344,32 @@ func checkFile(path string) error {
 	if err != nil {
 		return errors.New("missing")
 	}
-	if !info.Mode().IsRegular() || owner(info) != uid || info.Mode().Perm() != 0o600 || info.Size() == 0 || info.Size() >= 16384 {
+	mode := os.FileMode(0o600)
+	if tier == File {
+		mode = 0o400
+	}
+	if !info.Mode().IsRegular() || owner(info) != uid || info.Mode().Perm() != mode || info.Size() == 0 || info.Size() >= 16384 {
 		return errors.New("unsafe_file")
+	}
+	if tier == File {
+		file, err := os.Open(path)
+		if err != nil {
+			return errors.New("unreadable")
+		}
+		file.Close()
+		return nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return errors.New("unreadable")
 	}
+	want := header
+	if tier == Host {
+		want = hostHeader
+	}
 	raw, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(string(data)), ""))
-	if err != nil || len(raw) <= 100 || !bytes.Equal(raw[:16], header) {
-		return errors.New("not_tpm_sealed")
+	if err != nil || len(raw) <= 100 || !bytes.Equal(raw[:16], want) {
+		return errors.New("wrong_format")
 	}
 	return nil
 }
@@ -253,8 +381,12 @@ func owner(info os.FileInfo) int {
 	return -1
 }
 
-// decrypts proves the ciphertext opens with this machine's TPM and host key, discarding the plaintext.
+// decrypts proves the key reads back as sandboxd will read it, discarding the plaintext: a
+// ciphertext opens with this machine's keys; a plain file was already read by checkFile.
 func (s *Store) decrypts(svc Service, path string) bool {
+	if s.tier() == File {
+		return true
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "systemd-creds", "--user", "--no-ask-password", "--name="+s.Name(svc), "decrypt", path, "-")
@@ -266,8 +398,8 @@ type Failure struct{ Class string }
 
 func (f Failure) Error() string { return f.Class }
 
-// Set asks for a secret, encrypts it with the TPM, replaces the stored one only once the new
-// ciphertext is proven, and wires it to the agent's sandbox. It reports whether the sandbox
+// Set asks for a secret, stores it at the agent's tier, replaces the stored one only once the
+// new file is proven, and wires it to the agent's sandbox. It reports whether the sandbox
 // had no record of this service before (a new service, which reaches a running sandbox only
 // after sandboxd restarts).
 func (s *Store) Set(ctx context.Context, name string) (wired, newService bool, err error) {
@@ -278,10 +410,17 @@ func (s *Store) Set(ctx context.Context, name string) (wired, newService bool, e
 	if os.Geteuid() == 0 {
 		return false, false, Failure{"run as your own user, not root"}
 	}
-	verify := exec.CommandContext(ctx, "sudo", "-v")
-	verify.Stdin, verify.Stdout, verify.Stderr = os.Stdin, os.Stderr, os.Stderr
-	if err := verify.Run(); err != nil {
-		return false, false, Failure{"sudo_required"}
+	tier, err := s.Tier()
+	if err != nil {
+		return false, false, err
+	}
+	// Encryption reads the root-only host key; a plain file needs no sudo.
+	if tier != File {
+		verify := exec.CommandContext(ctx, "sudo", "-v")
+		verify.Stdin, verify.Stdout, verify.Stderr = os.Stdin, os.Stderr, os.Stderr
+		if err := verify.Run(); err != nil {
+			return false, false, Failure{"sudo_required"}
+		}
 	}
 	// Refuse redirected folders rather than following them.
 	for _, dir := range []string{s.Root, filepath.Join(s.Root, s.Agent)} {
@@ -319,15 +458,28 @@ func (s *Store) Set(ctx context.Context, name string) (wired, newService bool, e
 		temporary.Close()
 		return false, false, Failure{"empty_input"}
 	}
-	encrypt := exec.CommandContext(ctx, "sudo", "-n", "systemd-creds", "--uid="+account.Username,
-		"--with-key=host+tpm2", "--tpm2-pcrs=", "--tpm2-public-key-pcrs=", "--no-ask-password",
-		"--name="+s.Name(svc), "encrypt", "-", "-")
-	encrypt.Stdin, encrypt.Stdout = bytes.NewReader(value), temporary
-	encryptErr := encrypt.Run()
+	var encryptErr error
+	switch tier {
+	case File:
+		_, encryptErr = temporary.Write(value)
+		if encryptErr == nil {
+			encryptErr = temporary.Chmod(0o400)
+		}
+	default:
+		key := []string{"--with-key=host+tpm2", "--tpm2-pcrs=", "--tpm2-public-key-pcrs="}
+		if tier == Host {
+			key = []string{"--with-key=host"}
+		}
+		args := append(append([]string{"-n", "systemd-creds", "--uid=" + account.Username}, key...),
+			"--no-ask-password", "--name="+s.Name(svc), "encrypt", "-", "-")
+		encrypt := exec.CommandContext(ctx, "sudo", args...)
+		encrypt.Stdin, encrypt.Stdout = bytes.NewReader(value), temporary
+		encryptErr = encrypt.Run()
+	}
 	clear(value)
 	syncErr := temporary.Sync()
 	temporary.Close()
-	if encryptErr != nil || syncErr != nil || checkFile(temporary.Name()) != nil || !s.decrypts(svc, temporary.Name()) {
+	if encryptErr != nil || syncErr != nil || checkFile(temporary.Name(), tier) != nil || !s.decrypts(svc, temporary.Name()) {
 		return false, false, Failure{"encryption_or_verification_failed; the stored secret is unchanged"}
 	}
 	if err := os.Rename(temporary.Name(), path); err != nil {
@@ -467,11 +619,12 @@ func (s *Store) setRecord(ctx context.Context, svc Service) error {
 // Result is one service's check.
 type Result struct {
 	Service string
-	Problem string // empty when stored, decryptable and, when the sandbox exists, wired
+	Problem string // empty when stored, readable and, when the sandbox exists, wired
 	Wired   bool   // false with no Problem: the sandbox does not exist yet
 }
 
-// Check verifies every service: a private TPM-sealed ciphertext that decrypts, then, when the
+// Check verifies every service: a private key file in the agent's tier's format that reads
+// back, then, when the
 // agent's sandbox exists, exactly one scoped record for it. The host checks run even when
 // sandboxd cannot be reached. It never reads a secret's value.
 func (s *Store) Check(ctx context.Context) ([]Result, error) {
@@ -484,13 +637,16 @@ func (s *Store) Check(ctx context.Context) ([]Result, error) {
 			sandbox = "sandbox_secret_listing_unreadable"
 		}
 	}
+	tier, tierErr := s.Tier()
 	var results []Result
 	for _, svc := range s.Services {
 		r := Result{Service: svc.Name}
 		path := s.File(svc)
 		switch {
-		case checkFile(path) != nil:
-			r.Problem = checkFile(path).Error()
+		case tierErr != nil:
+			r.Problem = tierErr.Error()
+		case checkFile(path, tier) != nil:
+			r.Problem = checkFile(path, tier).Error()
 		case !s.decrypts(svc, path):
 			r.Problem = "does_not_decrypt"
 		case sandbox != "":
@@ -504,12 +660,16 @@ func (s *Store) Check(ctx context.Context) ([]Result, error) {
 	return results, nil
 }
 
-// Sources checks every service's host side only: a private TPM-sealed ciphertext that
-// decrypts. It needs no sandboxd, and names the first service that fails.
+// Sources checks every service's host side only: a private key file in the agent's tier's
+// format that reads back. It needs no sandboxd, and names the first service that fails.
 func (s *Store) Sources() error {
+	tier, err := s.Tier()
+	if err != nil {
+		return err
+	}
 	for _, svc := range s.Services {
 		path := s.File(svc)
-		if err := checkFile(path); err != nil {
+		if err := checkFile(path, tier); err != nil {
 			return Failure{svc.Name + "_" + err.Error()}
 		}
 		if !s.decrypts(svc, path) {

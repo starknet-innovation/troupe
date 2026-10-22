@@ -98,7 +98,7 @@ var commandList = sorted(append([]entry{
 	{"reset", "factory reset: start an agent fresh from its kit, keeping it and its keys", resetCommand, false},
 	{"resize", "change an agent's CPUs, memory or disk, keeping everything it has", resizeCommand, false},
 	{"restart", "restart an agent gracefully and wait until it is back", restartCommand, false},
-	{"secret", "store an agent's API keys encrypted and give its sandbox access", secretCommand, false},
+	{"secret", "store an agent's API keys and give its sandbox access", secretCommand, false},
 	{"start", "start an agent and keep it starting at boot", startCommand, false},
 	{"stop", "let an agent finish its work, then stop it and keep it stopped", stopCommand, false},
 	{"units", "render the systemd unit templates (the installer installs them)", units, true},

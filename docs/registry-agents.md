@@ -4,7 +4,7 @@ Status: step 1 done; step 2a (`create TYPE --name` from a published kit, proven 
 
 ## Goal
 
-An end user with Docker, sbx, a TPM host and a GitHub token that can read the kits creates an agent with one command and answers a few prompts:
+An end user with Docker, sbx, a host (ideally with a TPM) and a GitHub token that can read the kits creates an agent with one command and answers a few prompts:
 
 ```
 troupe create coder --name jane
@@ -18,14 +18,14 @@ The end user's whole surface:
 
 | Command | When |
 |---|---|
-| `troupe create TYPE --name NAME [--cpu N] [--memory GiB] [--storage GiB] [--soul FILE]` | A new agent, always from the latest published `TYPE` kit ([how `latest` is resolved](#the-latest-tag)). It writes the agent's environment, asks for its keys (hidden, TPM encrypted), creates the VM and starts it. It ends with a self-test: one message through the agent's model provider, with the reply shown. If the turn fails, it says exactly what's broken (key, network, provider), using the same deterministic check as the Labs' `check.sh`. |
+| `troupe create TYPE --name NAME [--cpu N] [--memory GiB] [--storage GiB] [--soul FILE]` | A new agent, always from the latest published `TYPE` kit ([how `latest` is resolved](#the-latest-tag)). It writes the agent's environment, asks for its keys (hidden, kept as strongly as the machine allows: TPM sealed, else after the user's yes, host key only or a plain file), creates the VM and starts it. It ends with a self-test: one message through the agent's model provider, with the reply shown. If the turn fails, it says exactly what's broken (key, network, provider), using the same deterministic check as the Labs' `check.sh`. |
 | `troupe chat NAME` | Talk to the agent from the terminal: Hermes's own chat UI inside the agent's VM (`sbx exec -it NAME hermes --tui` underneath). It works with or without Slack, and on EC2 over SSH. |
 | `troupe resize NAME [--cpu N] [--memory GiB] [--storage GiB]` | Change an agent's resources, keeping everything it has. sbx can't resize a VM, so this records the new sizes (only the flags given change) and moves the agent into a new VM on the same kit version. That's a new VM with the agent's memories, sessions, workspace and learned skills moved in, so no harvest is needed. It refuses a size the machine can't hold, or a disk smaller than the agent's data. |
 | `troupe upgrade NAME` | Move the agent onto the newest version of its kit, keeping everything it has (see below). |
 | `troupe start` / `stop` / `restart NAME` | Day to day, as today. |
 | `troupe secret set NAME SERVICE` | Rotate a key, as today. |
 | `troupe reset NAME` | Rare factory reset, which replaced `recreate`. It keeps the agent and its keys, but first warns that it erases the agent's memory, sessions, workspace and learned skills, and asks to confirm. |
-| `troupe delete NAME` | Remove the agent entirely. You confirm by typing its name as shown. It stops the agent and removes its VM and disks, then its local state: encrypted keys, generated folder, troupe's records and its start-at-boot unit. It then frees the name for a new `create`, and lists what troupe can't do for you: revoke the tokens it used, at their providers, and delete its Slack app. |
+| `troupe delete NAME` | Remove the agent entirely. You confirm by typing its name as shown. It stops the agent and removes its VM and disks, then its local state: keys, generated folder, troupe's records and its start-at-boot unit. It then frees the name for a new `create`, and lists what troupe can't do for you: revoke the tokens it used, at their providers, and delete its Slack app. |
 
 `upgrade` (decided 2026-10-17, replacing an earlier "no upgrade command": skills harvested from agents into the kit must reach existing agents, not only new ones). An agent still keeps its own Hermes current inside its VM; what only an upgrade brings is a newer kit version's image, tools and seeds:
 - **Only a newer version of the same MAJOR.** Equal leaves the agent as it is (its lessons cannot be in a version yet), unless the last upgrade stopped before its seed step, which it then finishes; older is refused; a new MAJOR (agents built on it break) means recreating the agent.
@@ -122,9 +122,9 @@ The services and their order come from the kit, so another type asks for its own
 |---|---|---|---|
 | Hardware | x86_64 CPU | the `coder` kit installs x86_64 builds | **fail** |
 | Hardware | KVM (`/dev/kvm` usable by the user) | sbx's microVMs | **fail** |
-| Hardware | TPM 2.0 (`/dev/tpmrm0`) | every key is TPM encrypted | **fail** |
+| Keys | TPM 2.0, else `systemd-creds`, else a plain file | how keys will be kept ([README](../README.md#key-protection)) | note below a TPM; `create` asks |
 | Hardware | 4 CPUs, 8 GiB memory, 120 GiB free disk, beyond the reserves above | one agent at the default size | **fail** |
-| Software | Linux with systemd 259 or newer, user-scoped `systemd-creds` | gateway units, key encryption | warn |
+| Software | Linux with systemd (older than 259, the tested version, is noted) | gateway units | warn |
 | Software | Docker | troupe reads the kit's files from the pulled image | warn |
 | Software | a token that reads the kits, in both sbx (`sbx secret set --registry`) and Docker (`docker login`) | sbx pulls the VM image only with its own credential; troupe reads the kit through Docker | warn; `create` asks for the token once (hidden) and stores it in both |
 | Software | sbx 0.48 or newer | the sandboxes | warn |
@@ -157,7 +157,7 @@ EC2 works with the same code and the same TPM path, given the right instance and
 
 - **Instance:** an Intel 8th-generation type with nested virtualization, launched with `--cpu-options "NestedVirtualization=enabled"`. AWS lists C8i, M8i and R8i (some sources also list 7th-generation Intel types). AMD and Graviton are not supported; `.metal` instances also work, at a higher price.
 - **Image:** Ubuntu 26.04 (the release troupe is built and tested on), registered once as your own AMI from Ubuntu's snapshot with `--boot-mode uefi --tpm-support v2.0`, so the instance gets AWS's NitroTPM (a virtual TPM 2.0). TPM support is an AMI property and can't be set at launch. If a TPM-enabled Ubuntu AMI turns out to exist already, this step disappears.
-- **Then the normal install**, and `troupe doctor` confirms KVM and the TPM.
+- **Then the normal install**, and `troupe doctor` confirms KVM and that keys are sealed by the TPM. Without NitroTPM, keys fall back to the host key only, which a snapshot of the volume can read; `create` asks before using that.
 
 The commands below are unverified until step 6 of the work runs them; the Ubuntu image name pattern and the CPU option syntax in particular are taken from documentation, not yet from a run.
 
@@ -198,7 +198,7 @@ KMS instead of the TPM was considered and rejected for now:
   - `source.json`, the kit version it is pinned to: the one it was created from, or the one `upgrade` moved it to. `reset` rebuilds from exactly that.
 
   Users never edit these.
-- **Keys:** as today, TPM encrypted under `~/.local/state/credentials/NAME/`.
+- **Keys:** under `~/.local/state/credentials/NAME/`, at the strongest [tier](../README.md#key-protection) the machine offers.
 - **Maintainer mode:** the dev build, with `troupe config set kits DIR` or `--kits`, uses a local kits root. Agents found there are local agents.
 
 ## What the published kit must carry
@@ -250,7 +250,7 @@ Neither Docker nor sbx lists a registry's tags, so without a moving tag troupe w
    - `troupe doctor` with the checks above (the registry token is left to `create`, which asks for it), run first by `create`;
    - `install.sh`, which also installs the units;
    - the release recipe, documented; the tagged release waits for publishing;
-   - tests that make each hardware check fail (no KVM, no TPM, wrong architecture, too little memory or disk) and each software check warn, using fake system files.
+   - tests that make each hardware check fail (no KVM, wrong architecture, too little memory or disk) and each software check warn, using fake system files.
 5. **Proof on this host,** with a new throwaway agent (done 2026-10-14 with the release build, installed by `install.sh` from a local binary since publishing is deferred; it passed, see the end of this list):
    1. Install with the one-line command.
    2. `troupe create coder --name jane-test --avatar URL` and the prompts, creating the Slack app through the one-click link: it must open pre-filled. The self-test must pass, the agent must answer on Slack and describe its picture, and `troupe chat jane-test` must hold a conversation while the gateway serves Slack.
