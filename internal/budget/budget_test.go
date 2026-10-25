@@ -131,4 +131,33 @@ func TestAResumedCreatesDisksAreNotCountedTwice(t *testing.T) {
 	if r := Check(h, []Sandbox{{Name: "jane"}}, want); len(r.Over) != 0 {
 		t.Fatalf("an existing VM's disks counted again: %+v", r)
 	}
+	// Of three wanted, only the existing one's disks are already counted: two more are new.
+	want.Count, want.MemoryGiB = 3, 1
+	if r := Check(h, []Sandbox{{Name: "jane"}}, want); len(r.Over) != 1 || r.Over[0].String() != "Disk: 990 GiB committed, 800 GiB available, 190 GiB over" {
+		t.Fatalf("the other new VMs' disks: %+v", r)
+	}
+}
+
+// Count VMs of one size are counted Count times; more than fit is over budget, never impossible.
+func TestCountCountsEachVM(t *testing.T) {
+	// 27 GiB beside nothing: two of 12+1.25 fit (26.5), three (39.75) do not.
+	two := Want{Name: "lab", CPUs: 6, MemoryGiB: 12, DiskGrowthGiB: 60, Count: 2}
+	if r := Check(host(), nil, two); r.Impossible != "" || len(r.Over) != 0 {
+		t.Fatalf("two: %+v", r)
+	}
+	three := two
+	three.Count = 3
+	r := Check(host(), nil, three)
+	if r.Impossible != "" || len(r.Over) != 1 || r.Over[0].String() != "Memory: 40 GiB committed, 27 GiB available, 13 GiB over" {
+		t.Fatalf("three: %+v", r)
+	}
+	// CPUs and disk too: five of 6 vCPUs and 200 GiB are 30 vCPUs (fits 30) and 1000 GiB (over 800).
+	five := Want{Name: "lab", CPUs: 6, MemoryGiB: 1, DiskGrowthGiB: 200, Count: 5}
+	r = Check(host(), nil, five)
+	if len(r.Over) != 1 || r.Over[0].String() != "Disk: 1000 GiB committed, 800 GiB available, 200 GiB over" {
+		t.Fatalf("five: %+v", r)
+	}
+	if r := Check(host(), nil, Want{Name: "lab", CPUs: 6, MemoryGiB: 1, Count: 6}); len(r.Over) != 1 || r.Over[0].String() != "CPUs: 36 vCPUs committed, 30 vCPUs available, 6 vCPUs over" {
+		t.Fatalf("six: %+v", r)
+	}
 }

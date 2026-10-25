@@ -16,13 +16,14 @@ import (
 
 var budgetHelp = help.Render(help.Command{
 	Summary:  "Check this machine has room for a new sandbox before another tool creates it.",
-	Usage:    []string{"budget check --name NAME --cpu N --memory GiB --disk GiB"},
+	Usage:    []string{"budget check --name NAME --cpu N --memory GiB --disk GiB [--count N]"},
 	Commands: []help.Row{{Name: "check", Desc: "Whether it fits, by the exit code below."}},
 	Flags: []help.Flag{
 		{Name: "name", Value: "NAME", Desc: "The sandbox, as the messages name it.", Required: true},
 		{Name: "cpu", Value: "N", Desc: "Its CPUs.", Required: true},
 		{Name: "memory", Value: "GiB", Desc: "Its memory in GiB.", Required: true},
 		{Name: "disk", Value: "GiB", Desc: "The disk it adds in GiB: its root and Docker disks.", Required: true},
+		{Name: "count", Value: "N", Desc: "How many sandboxes of these sizes, all at once.", Default: "1"},
 	},
 	Notes: []string{
 		"Exit 0: it fits. Exit 3: over budget, by the amounts shown; the caller decides. Exit 1: it can never",
@@ -45,12 +46,13 @@ func budgetCommand(e env, args []string) int {
 		set.IntVar(&w.CPUs, "cpu", 0, "")
 		set.IntVar(&w.MemoryGiB, "memory", 0, "")
 		set.IntVar(&w.DiskGrowthGiB, "disk", -1, "") // required: 0 is a size, so unset is -1
+		set.IntVar(&w.Count, "count", 1, "")
 	})
 	if !ok {
 		return code
 	}
-	if len(rest) != 0 || !sandboxName.MatchString(w.Name) || w.CPUs < 1 || w.MemoryGiB < 1 || w.DiskGrowthGiB < 0 {
-		return usageError(e, budgetHelp, "budget check needs --name, and --cpu, --memory and --disk as whole numbers")
+	if len(rest) != 0 || !sandboxName.MatchString(w.Name) || w.CPUs < 1 || w.MemoryGiB < 1 || w.DiskGrowthGiB < 0 || w.Count < 1 {
+		return usageError(e, budgetHelp, "budget check needs --name, and --cpu, --memory, --disk and --count as whole numbers")
 	}
 	printer := progress.New(label(w.Name), hostLocation(e))
 	printer.Out, printer.Err = e.out, e.err

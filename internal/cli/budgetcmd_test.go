@@ -23,6 +23,15 @@ func TestBudgetCheckFitsOrRefusesWithoutAsking(t *testing.T) {
 		!strings.Contains(out.String(), "Over budget") || strings.Contains(out.String(), "Continue anyway") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
+	// Two of 6 GiB beside the running 10 GiB: 10+1.25 + 2 × (6+1.25) = 25.75 fits 27; three do not.
+	out.Reset()
+	if code := budgetCheck(e, runner, printer, budget.Want{Name: "coder-lab", CPUs: 4, MemoryGiB: 6, Count: 2}); code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	out.Reset()
+	if code := budgetCheck(e, runner, printer, budget.Want{Name: "coder-lab", CPUs: 4, MemoryGiB: 6, Count: 3}); code != 3 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
 	// Larger than the whole machine can never run: 1, not over budget.
 	out.Reset()
 	if code := budgetCheck(e, runner, printer, budget.Want{Name: "coder-lab", CPUs: 4, MemoryGiB: 64}); code != 1 {
@@ -35,6 +44,7 @@ func TestBudgetCheckNeedsEverySize(t *testing.T) {
 		{"budget"}, {"budget", "other"}, {"budget", "check", "--name", "x", "--cpu", "4", "--memory", "6"},
 		{"budget", "check", "--name", "Bad Name", "--cpu", "4", "--memory", "6", "--disk", "60"},
 		{"budget", "check", "--name", "x", "--cpu", "0", "--memory", "6", "--disk", "60"},
+		{"budget", "check", "--name", "x", "--cpu", "4", "--memory", "6", "--disk", "60", "--count", "0"},
 	} {
 		if code, _, _ := run(args...); code != 2 {
 			t.Errorf("%v: exit %d", args, code)

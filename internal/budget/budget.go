@@ -63,6 +63,8 @@ type Want struct {
 	// NewVM: the disks are a new VM's, already counted in the host's growth once its sandbox
 	// exists (a resumed create).
 	NewVM bool
+	// Count is how many VMs of these sizes are wanted at once (0 means one).
+	Count int
 }
 
 // Line is one resource over budget, in whole units.
@@ -86,9 +88,12 @@ type Result struct {
 }
 
 // Check counts the running sandboxes other than the wanted agent, plus the agent at its wanted
-// size, against the host. Memory is counted in MiB, so a margin under a GiB is not rounded away.
+// size (Count of them), against the host. One VM larger than the machine is impossible; more
+// VMs than fit are only over budget. Memory is counted in MiB, so a margin under a GiB is not
+// rounded away.
 func Check(h Host, sandboxes []Sandbox, w Want) Result {
 	var r Result
+	count := int64(max(w.Count, 1))
 	if h.Memory == 0 || h.Cores == 0 {
 		r.Notes = append(r.Notes, "this machine's memory or cores could not be read, so they were not checked")
 	} else {
@@ -103,7 +108,7 @@ func Check(h Host, sandboxes []Sandbox, w Want) Result {
 			r.Impossible = fmt.Sprintf("%s alone asks for %d CPUs; this machine has %d", w.Name, w.CPUs, h.Cores)
 			return r
 		}
-		usedMemory, usedCPUs := wanted, int64(w.CPUs)
+		usedMemory, usedCPUs := count*wanted, count*int64(w.CPUs)
 		for _, s := range sandboxes {
 			if s.Name == w.Name {
 				continue
@@ -124,10 +129,10 @@ func Check(h Host, sandboxes []Sandbox, w Want) Result {
 	if h.DiskSize == 0 {
 		r.Notes = append(r.Notes, "the VM disks' free space could not be read, so disk was not checked")
 	} else {
-		disks := int64(w.DiskGrowthGiB)
+		disks := count * int64(w.DiskGrowthGiB)
 		for _, s := range sandboxes {
 			if s.Name == w.Name && w.NewVM {
-				disks = 0 // its disks exist already: the host's growth counts them
+				disks -= int64(w.DiskGrowthGiB) // its disks exist already: the host's growth counts them
 			}
 		}
 		available := (h.DiskFree - h.DiskSize*DiskReservePercent/100) / gib
