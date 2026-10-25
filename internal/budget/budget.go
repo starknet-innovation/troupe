@@ -4,8 +4,11 @@
 //
 // Over budget is a warning the operator confirms; only what cannot work at all (one agent larger
 // than the machine) is refused. The figures are measured on the host that runs the agents:
-//   - a VM's host memory (its containerd-shim-nerdbox process) reached about 2 GiB above its
-//     guest size during heavy builds, so each running VM counts 2 GiB beyond its declared memory;
+//   - a VM's host memory (its containerd-shim-nerdbox process) peaked about 1 GiB above its guest
+//     size, with the guest full during a heavy Rust build: its anonymous memory (guest RAM and the
+//     VMM's own) stayed within the declared size, and the rest was the kit image's layers mapped
+//     in. With the VM's sbx exec process (about 100 MiB once settled), each running VM counts
+//     1.25 GiB beyond its declared memory;
 //   - VM disks are sparse files that grow as the guest fills them, so a disk counts what it may
 //     still grow: its declared size minus what it already holds.
 package budget
@@ -25,8 +28,8 @@ import (
 const (
 	gib = int64(1) << 30
 	mib = int64(1) << 20
-	// OverheadGiB is each running VM's host memory beyond its declared memory.
-	OverheadGiB = 2
+	// OverheadMiB is each running VM's host memory beyond its declared memory.
+	OverheadMiB = 1280
 	// ReserveGiB is the memory kept back for the host itself, beyond sandboxd's own.
 	ReserveGiB = 2
 	// DiskReservePercent of the disks' filesystem stays free.
@@ -90,10 +93,10 @@ func Check(h Host, sandboxes []Sandbox, w Want) Result {
 		r.Notes = append(r.Notes, "this machine's memory or cores could not be read, so they were not checked")
 	} else {
 		memory := (h.Memory-h.SandboxdRSS)/mib - ReserveGiB*1024
-		wanted := (int64(w.MemoryGiB) + OverheadGiB) * 1024
+		wanted := int64(w.MemoryGiB)*1024 + OverheadMiB
 		if wanted > memory {
 			r.Impossible = fmt.Sprintf("%s alone needs %d GiB of memory with its VM's overhead; this machine has %d GiB for agents",
-				w.Name, wanted/1024, memory/1024)
+				w.Name, ceilGiB(wanted), memory/1024)
 			return r
 		}
 		if w.CPUs > h.Cores {
@@ -106,7 +109,7 @@ func Check(h Host, sandboxes []Sandbox, w Want) Result {
 				continue
 			}
 			if s.Running {
-				usedMemory += int64(s.MemoryMiB) + OverheadGiB*1024
+				usedMemory += int64(s.MemoryMiB) + OverheadMiB
 				usedCPUs += int64(s.CPUs)
 			}
 		}

@@ -19,7 +19,7 @@ func TestBudgetCheckFitsOrRefusesWithoutAsking(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 	out.Reset()
-	if code := budgetCheck(e, runner, printer, budget.Want{Name: "coder-lab", CPUs: 4, MemoryGiB: 14}); code != 3 ||
+	if code := budgetCheck(e, runner, printer, budget.Want{Name: "coder-lab", CPUs: 4, MemoryGiB: 15}); code != 3 ||
 		!strings.Contains(out.String(), "Over budget") || strings.Contains(out.String(), "Continue anyway") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}

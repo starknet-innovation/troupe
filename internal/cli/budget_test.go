@@ -61,8 +61,8 @@ func TestTheBudgetPassesWhatFits(t *testing.T) {
 }
 
 func TestOverBudgetAsksAndForceConfirms(t *testing.T) {
-	// 10+2 running, plus 14+2 asked: 28 GiB against 27.
-	want := budget.Want{Name: "jane", CPUs: 4, MemoryGiB: 14}
+	// 10+1.25 running, plus 15+1.25 asked: 27.5 GiB against 27.
+	want := budget.Want{Name: "jane", CPUs: 4, MemoryGiB: 15}
 	runner, printer, out := budgetHost(t)
 	e := env{ctx: context.Background(), out: out, err: out}
 	if err := checkBudget(e, runner, printer, want, forcedBudget); err != nil {
@@ -94,7 +94,7 @@ func TestAnAgentLargerThanTheMachineIsRefusedEvenWithForce(t *testing.T) {
 // A check that changes nothing (recreate --check) reports over budget as a refusal, never asks.
 func TestACheckReportsOverBudgetWithoutAsking(t *testing.T) {
 	runner, printer, out := budgetHost(t)
-	err := checkBudget(env{ctx: context.Background(), out: out, err: out}, runner, printer, budget.Want{Name: "jane", CPUs: 4, MemoryGiB: 14}, reportBudget)
+	err := checkBudget(env{ctx: context.Background(), out: out, err: out}, runner, printer, budget.Want{Name: "jane", CPUs: 4, MemoryGiB: 15}, reportBudget)
 	if !errors.Is(err, budget.ErrOver) {
 		t.Fatalf("err %v", err)
 	}
@@ -105,7 +105,7 @@ func TestAnAgentWhoseUnitIsUpCounts(t *testing.T) {
 	dir := t.TempDir()
 	runner, printer, out := budgetHostIn(t, dir)
 	os.WriteFile(filepath.Join(dir, "up-grace"), nil, 0o644)
-	// other 10+2 and grace 12+2 run: jane's 4+2 makes 30 GiB against 27.
+	// other 10+1.25 and grace 12+1.25 run: jane's 4+1.25 makes 29.75 GiB against 27.
 	err := checkBudget(env{ctx: context.Background(), out: out, err: out}, runner, printer, budget.Want{Name: "jane", CPUs: 4, MemoryGiB: 4}, reportBudget)
 	if !errors.Is(err, budget.ErrOver) {
 		t.Fatalf("err %v\n%s", err, out)

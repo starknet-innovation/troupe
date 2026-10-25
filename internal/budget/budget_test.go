@@ -29,9 +29,9 @@ func TestEachResourceOverBudgetIsReported(t *testing.T) {
 		want   Want
 		line   string
 	}{
-		// 12+2 + 10+2 = 26 fits 27; another 12+2 does not.
+		// 12+1.25 + 10+1.25 = 24.5 fits 27; another 12+1.25 does not.
 		"memory": {func(h Host) Host { return h }, []Sandbox{other, {Name: "grace", CPUs: 8, MemoryMiB: 12288, Running: true}},
-			Want{Name: "ada", CPUs: 8, MemoryGiB: 12}, "Memory: 40 GiB committed, 27 GiB available, 13 GiB over"},
+			Want{Name: "ada", CPUs: 8, MemoryGiB: 12}, "Memory: 38 GiB committed, 27 GiB available, 11 GiB over"},
 		"cpus": {func(h Host) Host { h.Memory = 300 * gib; return h }, []Sandbox{{Name: "a", CPUs: 16, MemoryMiB: 1024, Running: true}, {Name: "b", CPUs: 12, MemoryMiB: 1024, Running: true}},
 			Want{Name: "jane", CPUs: 4, MemoryGiB: 1}, "CPUs: 32 vCPUs committed, 30 vCPUs available, 2 vCPUs over"},
 		"disk": {func(h Host) Host { h.DiskGrowth = 750 * gib; return h }, nil,
@@ -110,7 +110,7 @@ func TestMeasureReadsTheHost(t *testing.T) {
 func TestMemoryIsCountedInMiB(t *testing.T) {
 	h := host()
 	h.SandboxdRSS = gib / 2
-	running := []Sandbox{{Name: "a", CPUs: 1, MemoryMiB: 13*1024 + 512, Running: true}}
+	running := []Sandbox{{Name: "a", CPUs: 1, MemoryMiB: 15 * 1024, Running: true}}
 	if r := Check(h, running, Want{Name: "b", CPUs: 1, MemoryGiB: 10}); len(r.Over) != 0 {
 		t.Fatalf("%+v", r)
 	}

@@ -131,7 +131,7 @@ needs with what the machine has, counting every sandbox sbx runs, troupe's or no
 
 | Resource | Counted | Available |
 |---|---|---|
-| Memory | every running VM's declared memory, plus 2 GiB each (a VM's host memory reaches about that much above its guest size under load) | the machine's memory, minus the sandbox daemon's own and a 2 GiB reserve |
+| Memory | every running VM's declared memory, plus 1.25 GiB each (a full VM's host memory peaks about 1 GiB above its guest size, and its `sbx exec` process holds about 100 MiB) | the machine's memory, minus the sandbox daemon's own and a 2 GiB reserve |
 | CPUs | every running VM's vCPUs | 2 × (cores − 1) (shared CPUs only slow agents down) |
 | Disk | what every VM disk may still grow (they are sparse), plus a new agent's disks | the free space on their filesystem, minus 10% of it |
 

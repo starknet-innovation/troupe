@@ -74,7 +74,7 @@ Every flag is optional:
 
 | Resource | Counted | Reserve kept back | Why |
 |---|---|---|---|
-| Memory | sum of the running agents' declared memory | 2 GiB and the sandbox daemon's own memory, plus a per-VM overhead of 2 GiB | overcommitted memory ends with the host killing processes, possibly a VM |
+| Memory | sum of the running agents' declared memory | 2 GiB and the sandbox daemon's own memory, plus a per-VM overhead of 1.25 GiB | overcommitted memory ends with the host killing processes, possibly a VM |
 | CPU | sum of the running agents' vCPUs | 1 core; it warns only above twice the cores | shared CPUs are only slower, never fatal |
 | Disk | what every VM disk may still grow (declared size minus what it holds; they are sparse), stopped ones included, plus a new agent's disks | 10% of the disk | VM disks grow as they fill, so overcommit shows up later as "disk full" inside an agent |
 
@@ -82,7 +82,7 @@ Behaviour:
 - **Over budget:** troupe prints what's committed, what's available and by how much it's over, then asks to confirm. `--force` stands in for the confirmation in non-interactive runs.
 - **Physically impossible:** troupe refuses only what can't work at all, a single agent asking for more memory or CPUs than the machine has.
 
-`max-running-agents` is retired: the budget counts every running VM, so it covers what the count was for. The per-VM overhead is 2 GiB, the most measured on this host (a VM's host memory during heavy builds); idle, a 10 GiB VM held 9.3 GiB.
+`max-running-agents` is retired: the budget counts every running VM, so it covers what the count was for. The per-VM overhead is 1.25 GiB, measured on this host: a full 8 GiB guest's VM process peaked at 9.03 GiB during a cold Rust build (its anonymous memory within the declared size, the rest the kit image's layers mapped in), and its `sbx exec` process settles to about 100 MiB.
 
 ## What `create` asks
 
