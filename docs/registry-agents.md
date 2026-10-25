@@ -63,7 +63,7 @@ Every flag is optional:
 
 | Flag | Default | Source |
 |---|---|---|
-| `--cpu` | 4 | kit |
+| `--cpu` | 6 (`hermes`: 4) | kit |
 | `--memory` | 8 GiB (`hermes`: 6 GiB) | kit |
 | `--storage` | 100 GiB root disk, plus 20 GiB for Docker | kit |
 | `--soul` | the type's default SOUL | kit |
@@ -123,7 +123,7 @@ The services and their order come from the kit, so another type asks for its own
 | Hardware | x86_64 CPU | the `coder` kit installs x86_64 builds | **fail** |
 | Hardware | KVM (`/dev/kvm` usable by the user) | sbx's microVMs | **fail** |
 | Keys | TPM 2.0, else `systemd-creds`, else a plain file | how keys will be kept ([README](../README.md#key-protection)) | note below a TPM; `create` asks |
-| Hardware | 4 CPUs, 8 GiB memory, 120 GiB free disk, beyond the reserves above | one agent at the default size | **fail** |
+| Hardware | 6 CPUs, 8 GiB memory, 120 GiB free disk, beyond the reserves above | a coder agent at its default size | note; `create` checks each agent's own sizes (a machine that cannot be measured fails) |
 | Software | Linux with systemd (older than 259, the tested version, is noted) | gateway units | warn |
 | Software | Docker | troupe reads the kit's files from the pulled image | warn |
 | Software | a token that reads the kits, in both sbx (`sbx secret set --registry`) and Docker (`docker login`) | sbx pulls the VM image only with its own credential; troupe reads the kit through Docker | warn; `create` asks for the token once (hidden) and stores it in both |
@@ -267,7 +267,7 @@ Neither Docker nor sbx lists a registry's tags, so without a moving tag troupe w
 
 ## Open points for your decision
 
-- The `coder` default sizes are 4 CPUs, 8 GiB memory (your call, for language servers, the browser and builds), 100 GiB root disk and 20 GiB Docker disk. `hermes` uses 6 GiB memory and 50 GiB and 10 GiB disks, like Hermes Lab.
+- The `coder` default sizes are 6 CPUs, 8 GiB memory (your call, for language servers, the browser and builds), 100 GiB root disk and 20 GiB Docker disk. `hermes` uses 6 GiB memory and 50 GiB and 10 GiB disks, like Hermes Lab.
 - Decided (2026-10-14, to revisit): Slack and GitHub are required for `coder`; `hermes` is the type without them. `troupe chat` and the end-of-create self-test work for every agent.
 - Measured in step 5 (2026-10-14): a terminal chat runs while the gateway serves Slack in the same VM, and the Slack link, printed whole, creates the app pre-filled. A clickable label alone (OSC 8) showed as plain text with no address in the owner's terminal, so the link is now always printed whole.
 - Step 5 also found that `reset` and `resize` left the replaced VM's assembled image behind (about 3 GB each). Fixed the same day: both remove it once the new VM runs, under `delete`'s rule (never an image any sandbox runs), and a run interrupted before that has it removed by the agent's next reset or resize.

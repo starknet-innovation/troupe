@@ -73,18 +73,9 @@ func TestMissingHardwareFails(t *testing.T) {
 		break_ func(*Host)
 		want   string
 	}{
-		"an arm CPU":    {"cpu", func(h *Host) { h.Arch = "arm64" }, "x86_64"},
-		"no KVM":        {"kvm", func(h *Host) { os.Remove(h.KVM) }, "virtualization"},
-		"KVM not yours": {"kvm", func(h *Host) { os.Chmod(h.KVM, 0) }, "kvm group"},
-		"too little memory": {"room", func(h *Host) {
-			h.Measure = fixed(budget.Host{Memory: 8 * gib, Cores: 8, DiskFree: 500 * gib, DiskSize: 1000 * gib})
-		}, "memory"},
-		"too few CPUs": {"room", func(h *Host) {
-			h.Measure = fixed(budget.Host{Memory: 32 * gib, Cores: 2, DiskFree: 500 * gib, DiskSize: 1000 * gib})
-		}, "CPUs"},
-		"too little disk": {"room", func(h *Host) {
-			h.Measure = fixed(budget.Host{Memory: 32 * gib, Cores: 8, DiskFree: 100 * gib, DiskSize: 1000 * gib})
-		}, "Disk"},
+		"an arm CPU":        {"cpu", func(h *Host) { h.Arch = "arm64" }, "x86_64"},
+		"no KVM":            {"kvm", func(h *Host) { os.Remove(h.KVM) }, "virtualization"},
+		"KVM not yours":     {"kvm", func(h *Host) { os.Chmod(h.KVM, 0) }, "kvm group"},
 		"unreadable memory": {"room", func(h *Host) { h.Measure = fixed(budget.Host{Cores: 8, DiskFree: 500 * gib, DiskSize: 1000 * gib}) }, "could not be read"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -109,6 +100,42 @@ func TestMissingHardwareFails(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A machine too small for a coder agent at its default size is a note, never a failure: create
+// checks each agent's own sizes, so a smaller agent may still fit (4 and 5 CPUs are below the
+// coder default of 6 and still hold a 4 CPU agent).
+func TestNoRoomForADefaultCoderIsANote(t *testing.T) {
+	for name, c := range map[string]struct {
+		host budget.Host
+		want string
+	}{
+		"too little memory": {budget.Host{Memory: 8 * gib, Cores: 8, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "memory"},
+		"two CPUs":          {budget.Host{Memory: 32 * gib, Cores: 2, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "CPUs"},
+		"four CPUs":         {budget.Host{Memory: 32 * gib, Cores: 4, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "CPUs"},
+		"five CPUs":         {budget.Host{Memory: 32 * gib, Cores: 5, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "CPUs"},
+		"too little disk":   {budget.Host{Memory: 32 * gib, Cores: 8, DiskFree: 100 * gib, DiskSize: 1000 * gib}, "Disk"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := ready(t)
+			h.Measure = fixed(c.host)
+			lines := Check(h)
+			var got Line
+			for _, l := range lines {
+				if l.Name == "room" {
+					got = l
+				}
+			}
+			if got.Level != Note || !strings.Contains(got.Message, c.want) || !strings.Contains(got.Message, "own sizes") || Failed(lines) {
+				t.Fatalf("%+v", got)
+			}
+		})
+	}
+	h := ready(t)
+	h.Measure = fixed(budget.Host{Memory: 32 * gib, Cores: 6, DiskFree: 500 * gib, DiskSize: 1000 * gib})
+	if got := levels(Check(h)); got["room"] != OK {
+		t.Fatalf("six CPUs hold the coder default: %v", got)
 	}
 }
 

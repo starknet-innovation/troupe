@@ -121,10 +121,11 @@ func keys(h Host) Line {
 	return Line{"keys", Note, tier.Describe() + "; create asks before using it. TPM sealing needs " + tier.Upgrade()}
 }
 
-// room is one agent at the default size against an empty machine, with the reserves create uses:
-// the machine's memory, cores and free disk, not what existing sandboxes hold or may grow (create
-// weighs those, and asks). The sandbox daemon's folder may not exist yet: its nearest existing
-// parent holds the disks.
+// room is one coder agent at its default size against an empty machine, with the reserves create
+// uses: the machine's memory, cores and free disk, not what existing sandboxes hold or may grow
+// (create weighs those, and asks). Not fitting is a note: create checks each agent's own sizes, so
+// a smaller agent may still fit. Only a machine that cannot be measured fails. The sandbox
+// daemon's folder may not exist yet: its nearest existing parent holds the disks.
 func room(h Host) Line {
 	paths := h.Budget
 	for dir := paths.Sandboxd; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
@@ -137,18 +138,19 @@ func room(h Host) Line {
 	host.SandboxdRSS, host.DiskGrowth = 0, 0
 	result := budget.Check(host, nil, budget.Want{Name: "one agent", CPUs: agentCPUs,
 		MemoryGiB: agentMemoryGiB, DiskGrowthGiB: agentDiskGiB})
-	need := fmt.Sprintf("room for one agent (%d CPUs, %d GiB memory, %d GiB disk) beyond the reserves", agentCPUs, agentMemoryGiB, agentDiskGiB)
+	need := fmt.Sprintf("room for a coder agent at its default size (%d CPUs, %d GiB memory, %d GiB disk) beyond the reserves", agentCPUs, agentMemoryGiB, agentDiskGiB)
+	smaller := "; create checks each agent's own sizes, so a smaller one (--cpu, --memory, --storage) may still fit"
 	switch {
 	case len(result.Notes) > 0:
 		return Line{"room", Fail, strings.Join(result.Notes, "; ")}
 	case result.Impossible != "":
-		return Line{"room", Fail, "no " + need + ": " + result.Impossible}
+		return Line{"room", Note, "no " + need + ": " + result.Impossible + smaller}
 	case len(result.Over) > 0:
 		var over []string
 		for _, l := range result.Over {
 			over = append(over, l.String())
 		}
-		return Line{"room", Fail, "no " + need + ": " + strings.Join(over, "; ")}
+		return Line{"room", Note, "no " + need + ": " + strings.Join(over, "; ") + smaller}
 	}
 	return Line{"room", OK, need}
 }

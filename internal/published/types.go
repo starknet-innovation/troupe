@@ -23,7 +23,7 @@ var Types = []Type{
 	{
 		Name:     "coder",
 		Summary:  "A coding agent that works through Slack and GitHub.",
-		Defaults: Defaults{CPUs: 4, MemoryGiB: 8, RootGiB: 100, DockerGiB: 20},
+		Defaults: Defaults{CPUs: 6, MemoryGiB: 8, RootGiB: 100, DockerGiB: 20},
 		Soul:     "coder's built-in SOUL",
 		Asks: []Ask{
 			{Name: "GITHUB_ORGANIZATIONS", Label: "organizations", Desc: "GitHub organizations it may work in, as logins.", Optional: true},
