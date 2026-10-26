@@ -105,7 +105,7 @@ func TestMissingHardwareFails(t *testing.T) {
 
 // A machine too small for a coder agent at its default size is a note, never a failure: create
 // checks each agent's own sizes, so a smaller agent may still fit (4 and 5 CPUs are below the
-// coder default of 6 and still hold a 4 CPU agent).
+// coder default of 8 and still hold a 4 CPU agent).
 func TestNoRoomForADefaultCoderIsANote(t *testing.T) {
 	for name, c := range map[string]struct {
 		host budget.Host
@@ -115,6 +115,7 @@ func TestNoRoomForADefaultCoderIsANote(t *testing.T) {
 		"two CPUs":          {budget.Host{Memory: 32 * gib, Cores: 2, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "CPUs"},
 		"four CPUs":         {budget.Host{Memory: 32 * gib, Cores: 4, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "CPUs"},
 		"five CPUs":         {budget.Host{Memory: 32 * gib, Cores: 5, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "CPUs"},
+		"seven CPUs":        {budget.Host{Memory: 32 * gib, Cores: 7, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "CPUs"},
 		"too little disk":   {budget.Host{Memory: 32 * gib, Cores: 8, DiskFree: 100 * gib, DiskSize: 1000 * gib}, "Disk"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -133,9 +134,9 @@ func TestNoRoomForADefaultCoderIsANote(t *testing.T) {
 		})
 	}
 	h := ready(t)
-	h.Measure = fixed(budget.Host{Memory: 32 * gib, Cores: 6, DiskFree: 500 * gib, DiskSize: 1000 * gib})
+	h.Measure = fixed(budget.Host{Memory: 32 * gib, Cores: 8, DiskFree: 500 * gib, DiskSize: 1000 * gib})
 	if got := levels(Check(h)); got["room"] != OK {
-		t.Fatalf("six CPUs hold the coder default: %v", got)
+		t.Fatalf("eight CPUs hold the coder default: %v", got)
 	}
 }
 

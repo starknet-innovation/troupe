@@ -39,7 +39,7 @@ stops it):
 |---|---|---|
 | Hardware | an x86_64 CPU | fails |
 | Hardware | KVM (`/dev/kvm`) usable by you | fails |
-| Hardware | room for a coder agent at its default size (6 CPUs, 8 GiB memory, 120 GiB disk) beyond the reserves | noted; `create` checks each agent's own sizes, so a smaller one may still fit |
+| Hardware | room for a coder agent at its default size (8 CPUs, 12 GiB memory, 120 GiB disk) beyond the reserves | noted; `create` checks each agent's own sizes, so a smaller one may still fit |
 | Keys | how keys will be kept, strongest available ([key protection](#key-protection)) | noted below a TPM; `create` asks |
 | Software | systemd (one older than 259, the version troupe is tested on, is noted) | asks for your action |
 | Software | Docker with buildx | asks for your action |
