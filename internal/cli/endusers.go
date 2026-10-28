@@ -201,10 +201,20 @@ func known(e env, name string) error {
 	return err
 }
 
-// terminal reports whether f is a terminal.
+// terminal reports whether f is a terminal. It goes through SyscallConn, never Fd, as
+// secret's termios does: Fd would switch f to blocking mode.
 func terminal(f *os.File) bool {
+	conn, err := f.SyscallConn()
+	if err != nil {
+		return false
+	}
 	var t syscall.Termios
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), syscall.TCGETS, uintptr(unsafe.Pointer(&t)))
+	var errno syscall.Errno
+	if err := conn.Control(func(fd uintptr) {
+		_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TCGETS, uintptr(unsafe.Pointer(&t)))
+	}); err != nil {
+		return false
+	}
 	return errno == 0
 }
 
