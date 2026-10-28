@@ -34,6 +34,10 @@ const (
 	ReserveGiB = 2
 	// DiskReservePercent of the disks' filesystem stays free.
 	DiskReservePercent = 10
+	// CPUOvercommitPercent is how far running VMs' vCPUs may go past the machine's CPU threads.
+	// VMs idle between bursts, so shared CPUs only slow a burst down; memory is never
+	// overcommitted (the owner, 2026-10-28).
+	CPUOvercommitPercent = 50
 )
 
 // Host is this machine's figures. Zero values mean unknown.
@@ -121,9 +125,7 @@ func Check(h Host, sandboxes []Sandbox, w Want) Result {
 		if usedMemory > memory {
 			r.Over = append(r.Over, Line{"Memory", ceilGiB(usedMemory), memory / 1024, "GiB"})
 		}
-		// No vCPU is shared: past the machine's cores, agents and their test runs compete for
-		// CPU (the owner, 2026-10-28).
-		if cpus := int64(h.Cores); usedCPUs > cpus {
+		if cpus := int64(h.Cores) * (100 + CPUOvercommitPercent) / 100; usedCPUs > cpus {
 			r.Over = append(r.Over, Line{"CPUs", usedCPUs, cpus, "vCPUs"})
 		}
 	}

@@ -132,7 +132,7 @@ needs with what the machine has, counting every sandbox sbx runs, troupe's or no
 | Resource | Counted | Available |
 |---|---|---|
 | Memory | every running VM's declared memory, plus 1.25 GiB each (a full VM's host memory peaks about 1 GiB above its guest size, and its `sbx exec` process holds about 100 MiB) | the machine's memory, minus the sandbox daemon's own and a 2 GiB reserve |
-| CPUs | every running VM's vCPUs | the machine's CPU threads (`nproc`): no vCPU is shared, since shared CPUs make agents and their test runs compete |
+| CPUs | every running VM's vCPUs | the machine's CPU threads (`nproc`) and half again: VMs idle between bursts, so shared CPUs only slow a burst down (memory is never overcommitted) |
 | Disk | what every VM disk may still grow (they are sparse), plus a new agent's disks | the free space on their filesystem, minus 10% of it |
 
 A gateway unit that is up counts as running, since it boots its VM again within seconds. Over

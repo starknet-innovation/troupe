@@ -8,7 +8,8 @@ import (
 )
 
 // host is a 30 GiB, 16 core machine whose sandbox daemon holds 1 GiB, with 1000 GiB free on a
-// 2000 GiB disk and no VM disk growth: 27 GiB of memory, 16 vCPUs and 800 GiB of disk for agents.
+// 2000 GiB disk and no VM disk growth: 27 GiB of memory, 24 vCPUs (16
+// cores and half again) and 800 GiB of disk for agents.
 func host() Host {
 	return Host{Memory: 30 * gib, Cores: 16, SandboxdRSS: 1 * gib, DiskFree: 1000 * gib, DiskSize: 2000 * gib}
 }
@@ -32,8 +33,8 @@ func TestEachResourceOverBudgetIsReported(t *testing.T) {
 		// 12+1.25 + 10+1.25 = 24.5 fits 27; another 12+1.25 does not.
 		"memory": {func(h Host) Host { return h }, []Sandbox{other, {Name: "grace", CPUs: 4, MemoryMiB: 12288, Running: true}},
 			Want{Name: "ada", CPUs: 4, MemoryGiB: 12}, "Memory: 38 GiB committed, 27 GiB available, 11 GiB over"},
-		"cpus": {func(h Host) Host { h.Memory = 300 * gib; return h }, []Sandbox{{Name: "a", CPUs: 8, MemoryMiB: 1024, Running: true}, {Name: "b", CPUs: 6, MemoryMiB: 1024, Running: true}},
-			Want{Name: "jane", CPUs: 4, MemoryGiB: 1}, "CPUs: 18 vCPUs committed, 16 vCPUs available, 2 vCPUs over"},
+		"cpus": {func(h Host) Host { h.Memory = 300 * gib; return h }, []Sandbox{{Name: "a", CPUs: 16, MemoryMiB: 1024, Running: true}, {Name: "b", CPUs: 6, MemoryMiB: 1024, Running: true}},
+			Want{Name: "jane", CPUs: 4, MemoryGiB: 1}, "CPUs: 26 vCPUs committed, 24 vCPUs available, 2 vCPUs over"},
 		"disk": {func(h Host) Host { h.DiskGrowth = 750 * gib; return h }, nil,
 			Want{Name: "jane", CPUs: 4, MemoryGiB: 8, DiskGrowthGiB: 120}, "Disk: 870 GiB committed, 800 GiB available, 70 GiB over"},
 	}
@@ -151,20 +152,20 @@ func TestCountCountsEachVM(t *testing.T) {
 	if r.Impossible != "" || len(r.Over) != 1 || r.Over[0].String() != "Memory: 40 GiB committed, 27 GiB available, 13 GiB over" {
 		t.Fatalf("three: %+v", r)
 	}
-	// CPUs and disk too: five of 3 vCPUs and 200 GiB are 15 vCPUs (fits 16) and 1000 GiB (over 800).
+	// CPUs and disk too: five of 3 vCPUs and 200 GiB are 15 vCPUs (fits 24) and 1000 GiB (over 800).
 	five := Want{Name: "lab", CPUs: 3, MemoryGiB: 1, DiskGrowthGiB: 200, Count: 5}
 	r = Check(host(), nil, five)
 	if len(r.Over) != 1 || r.Over[0].String() != "Disk: 1000 GiB committed, 800 GiB available, 200 GiB over" {
 		t.Fatalf("five: %+v", r)
 	}
-	if r := Check(host(), nil, Want{Name: "lab", CPUs: 3, MemoryGiB: 1, Count: 6}); len(r.Over) != 1 || r.Over[0].String() != "CPUs: 18 vCPUs committed, 16 vCPUs available, 2 vCPUs over" {
-		t.Fatalf("six: %+v", r)
+	if r := Check(host(), nil, Want{Name: "lab", CPUs: 3, MemoryGiB: 1, Count: 9}); len(r.Over) != 1 || r.Over[0].String() != "CPUs: 27 vCPUs committed, 24 vCPUs available, 3 vCPUs over" {
+		t.Fatalf("nine: %+v", r)
 	}
-	// Exactly the cores fit; one vCPU more does not.
-	if r := Check(host(), nil, Want{Name: "lab", CPUs: 4, MemoryGiB: 1, Count: 4}); len(r.Over) != 0 {
-		t.Fatalf("all the cores: %+v", r)
+	// Exactly the cores and half again fit; one vCPU more does not.
+	if r := Check(host(), nil, Want{Name: "lab", CPUs: 4, MemoryGiB: 1, Count: 6}); len(r.Over) != 0 {
+		t.Fatalf("all the vCPUs: %+v", r)
 	}
-	if r := Check(host(), []Sandbox{{Name: "a", CPUs: 1, MemoryMiB: 1024, Running: true}}, Want{Name: "lab", CPUs: 4, MemoryGiB: 1, Count: 4}); len(r.Over) != 1 || r.Over[0].String() != "CPUs: 17 vCPUs committed, 16 vCPUs available, 1 vCPUs over" {
+	if r := Check(host(), []Sandbox{{Name: "a", CPUs: 1, MemoryMiB: 1024, Running: true}}, Want{Name: "lab", CPUs: 4, MemoryGiB: 1, Count: 6}); len(r.Over) != 1 || r.Over[0].String() != "CPUs: 25 vCPUs committed, 24 vCPUs available, 1 vCPUs over" {
 		t.Fatalf("one vCPU more: %+v", r)
 	}
 }

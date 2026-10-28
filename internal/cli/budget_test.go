@@ -44,8 +44,8 @@ exit 0
 		return budget.Paths{Meminfo: filepath.Join(dir, "meminfo"), Proc: filepath.Join(dir, "proc"), Sandboxd: filepath.Join(dir, "sandboxd")}
 	}
 	t.Cleanup(func() { budgetPaths = original })
-	// 16 cores whatever the machine running the tests has: no vCPU is shared, so the real count
-	// would decide the CPU lines.
+	// 16 cores whatever the machine running the tests has: the real count would decide the CPU
+	// lines.
 	originalMeasure := budgetMeasure
 	budgetMeasure = func(p budget.Paths) budget.Host { h := budget.Measure(p); h.Cores = 16; return h }
 	t.Cleanup(func() { budgetMeasure = originalMeasure })

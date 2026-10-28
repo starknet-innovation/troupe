@@ -75,7 +75,7 @@ Every flag is optional:
 | Resource | Counted | Reserve kept back | Why |
 |---|---|---|---|
 | Memory | sum of the running agents' declared memory | 2 GiB and the sandbox daemon's own memory, plus a per-VM overhead of 1.25 GiB | overcommitted memory ends with the host killing processes, possibly a VM |
-| CPU | sum of the running agents' vCPUs | none; it warns past the CPU threads (`nproc`) | no vCPU is shared: shared CPUs are never fatal, but agents and their test runs compete for them |
+| CPU | sum of the running agents' vCPUs | none; it warns past the CPU threads (`nproc`) and half again | VMs idle between bursts, so up to 50% overcommit only slows a burst down; shared CPUs are never fatal, unlike memory |
 | Disk | what every VM disk may still grow (declared size minus what it holds; they are sparse), stopped ones included, plus a new agent's disks | 10% of the disk | VM disks grow as they fill, so overcommit shows up later as "disk full" inside an agent |
 
 Behaviour:
@@ -151,43 +151,6 @@ curl -fsSL https://raw.githubusercontent.com/starknet-innovation/troupe/main/ins
 
 No tagged release exists yet; until one does, the installer runs with a local binary. The recipe is in [development.md](development.md#releasing).
 
-## EC2
-
-EC2 works with the same code and the same TPM path, given the right instance and image:
-
-- **Instance:** an Intel 8th-generation type with nested virtualization, launched with `--cpu-options "NestedVirtualization=enabled"`. AWS lists C8i, M8i and R8i (some sources also list 7th-generation Intel types). AMD and Graviton are not supported; `.metal` instances also work, at a higher price.
-- **Image:** Ubuntu 26.04 (the release troupe is built and tested on), registered once as your own AMI from Ubuntu's snapshot with `--boot-mode uefi --tpm-support v2.0`, so the instance gets AWS's NitroTPM (a virtual TPM 2.0). TPM support is an AMI property and can't be set at launch. If a TPM-enabled Ubuntu AMI turns out to exist already, this step disappears.
-- **Then the normal install**, and `troupe doctor` confirms KVM and that keys are sealed by the TPM. Without NitroTPM, keys fall back to the host key only, which a snapshot of the volume can read; `create` asks before using that.
-
-The commands below are unverified until step 6 of the work runs them; the Ubuntu image name pattern and the CPU option syntax in particular are taken from documentation, not yet from a run.
-
-```bash
-# 1. Once per region: the latest Ubuntu 26.04 x86_64 image and its root snapshot (Canonical's account).
-aws ec2 describe-images --owners 099720109477 \
-  --filters 'Name=name,Values=ubuntu/images/*ubuntu-*-26.04-amd64-server-*' \
-  --query 'sort_by(Images,&CreationDate)[-1].[ImageId,BlockDeviceMappings[0].Ebs.SnapshotId]' --output text
-
-# 2. Register your own AMI from that snapshot, with UEFI and NitroTPM.
-aws ec2 register-image --name ubuntu-26.04-tpm --architecture x86_64 --virtualization-type hvm --ena-support \
-  --root-device-name /dev/sda1 \
-  --block-device-mappings 'DeviceName=/dev/sda1,Ebs={SnapshotId=SNAPSHOT,VolumeType=gp3}' \
-  --boot-mode uefi --tpm-support v2.0
-
-# 3. Launch an Intel 8th-generation instance with nested virtualization and room for agents.
-aws ec2 run-instances --image-id AMI --instance-type m8i.2xlarge --key-name KEY \
-  --cpu-options 'NestedVirtualization=enabled' \
-  --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=250,VolumeType=gp3}'
-
-# 4. On the instance: Docker, sbx, then troupe.
-curl -fsSL https://raw.githubusercontent.com/starknet-innovation/troupe/main/install.sh | sh
-```
-
-
-KMS instead of the TPM was considered and rejected for now:
-- every key use would become an AWS call;
-- a guest reaching the instance metadata endpoint could decrypt every agent's keys, which is unmeasured;
-- it would need a second secret system.
-
 ## Where things live
 
 - **Kits:** `ghcr.io/starknet-innovation/agents/TYPE:VERSION` (once published there, see below; GitHub lists them as `agents/TYPE`), plus `TYPE:latest` (the `registry` machine setting). Access is one GitHub token that can read packages: sbx pulls the VM image only with its own registry credential, and troupe reads the kit through Docker, so `create` asks for the token once (hidden) when either is missing and stores it in both.
@@ -257,13 +220,6 @@ Neither Docker nor sbx lists a registry's tags, so without a moving tag troupe w
    3. `troupe resize jane-test --memory 12`. The agent must come back with the new memory and the same memories and skills, proven by a marker file it wrote before.
    4. `troupe delete jane-test`. Nothing of it may remain: no sandbox, keys, records or unit. Then `create` must accept the name again.
    Step 5's result: the release build installed with no sudo prompt and the doctor passed; `create` pinned the agent to the `coder:1.3.2` tag, recorded its Slack workspace, and the agent found its GitHub identity in its VM; it answered in Slack and in `troupe chat` and described its picture; `resize --memory 12` brought it back at 12 GiB with its marker file unchanged byte for byte and its state database kept; `delete` left nothing of it, and the machine matched its state from before the test once the replaced VM's image (the finding above) and the kit cache were removed.
-6. **Proof on EC2:**
-   - register the AMI;
-   - launch a nested-virtualization instance;
-   - run the one-line install and `troupe doctor` (all hardware checks ok);
-   - create a throwaway agent, then terminate the instance.
-
-   A negative control: the same instance type launched without nested virtualization must make the installer refuse.
 
 ## Open points for your decision
 
