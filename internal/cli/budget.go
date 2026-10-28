@@ -17,6 +17,9 @@ var budgetPaths = func() budget.Paths {
 	return budget.Paths{Meminfo: "/proc/meminfo", Proc: "/proc", Sandboxd: guard.Default().Sandboxd}
 }
 
+// budgetMeasure reads this machine's figures (budget.Measure); tests give fixed cores.
+var budgetMeasure = budget.Measure
+
 // unitUp is whether an agent's gateway unit is up; tests replace it.
 var unitUp = agent.UnitUp
 
@@ -47,7 +50,7 @@ func checkBudget(e env, runner sbx.Runner, printer *progress.Printer, w budget.W
 	if err != nil {
 		return err
 	}
-	result := budget.Check(budget.Measure(budgetPaths()), listed, w)
+	result := budget.Check(budgetMeasure(budgetPaths()), listed, w)
 	for _, note := range result.Notes {
 		printer.Print("budget", progress.Info, note)
 	}

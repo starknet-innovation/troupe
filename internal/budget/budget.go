@@ -121,8 +121,9 @@ func Check(h Host, sandboxes []Sandbox, w Want) Result {
 		if usedMemory > memory {
 			r.Over = append(r.Over, Line{"Memory", ceilGiB(usedMemory), memory / 1024, "GiB"})
 		}
-		// Shared CPUs only make agents slower, so only past 2 × (cores − 1) is it worth a word.
-		if cpus := 2 * int64(h.Cores-1); usedCPUs > cpus {
+		// No vCPU is shared: past the machine's cores, agents and their test runs compete for
+		// CPU (the owner, 2026-10-28).
+		if cpus := int64(h.Cores); usedCPUs > cpus {
 			r.Over = append(r.Over, Line{"CPUs", usedCPUs, cpus, "vCPUs"})
 		}
 	}

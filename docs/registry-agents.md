@@ -75,7 +75,7 @@ Every flag is optional:
 | Resource | Counted | Reserve kept back | Why |
 |---|---|---|---|
 | Memory | sum of the running agents' declared memory | 2 GiB and the sandbox daemon's own memory, plus a per-VM overhead of 1.25 GiB | overcommitted memory ends with the host killing processes, possibly a VM |
-| CPU | sum of the running agents' vCPUs | 1 core; it warns only above twice the cores | shared CPUs are only slower, never fatal |
+| CPU | sum of the running agents' vCPUs | none; it warns past the CPU threads (`nproc`) | no vCPU is shared: shared CPUs are never fatal, but agents and their test runs compete for them |
 | Disk | what every VM disk may still grow (declared size minus what it holds; they are sparse), stopped ones included, plus a new agent's disks | 10% of the disk | VM disks grow as they fill, so overcommit shows up later as "disk full" inside an agent |
 
 Behaviour:
