@@ -109,18 +109,37 @@ func TestProbeFails(t *testing.T) {
 			d.writePidfile(t, strconv.Itoa(other.Process.Pid))
 		},
 		"socket also held by a second process": func(t *testing.T, d *fakeDaemon) {
-			listener := d.control.(*net.UnixListener)
-			file, err := listener.File()
+			// The child gets the socket through SyscallConn and ForkExec, never exec.Cmd: its Fd
+			// would switch the shared socket to blocking mode, and then closing the listener
+			// could no longer end the server's pending accept. The child keeps no stdio.
+			conn, err := d.control.(*net.UnixListener).SyscallConn()
 			if err != nil {
 				t.Fatal(err)
 			}
-			second := exec.Command("sleep", "30")
-			second.ExtraFiles = []*os.File{file}
-			if err := second.Start(); err != nil {
+			var dup uintptr
+			var errno syscall.Errno
+			if err := conn.Control(func(fd uintptr) {
+				dup, _, errno = syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_DUPFD_CLOEXEC, 0)
+			}); err != nil {
 				t.Fatal(err)
 			}
-			file.Close()
-			t.Cleanup(func() { second.Process.Kill(); second.Wait() })
+			if errno != 0 {
+				t.Fatal(errno)
+			}
+			defer syscall.Close(int(dup))
+			sleep, err := exec.LookPath("sleep")
+			if err != nil {
+				t.Fatal(err)
+			}
+			pid, err := syscall.ForkExec(sleep, []string{"sleep", "30"}, &syscall.ProcAttr{Files: []uintptr{^uintptr(0), ^uintptr(0), ^uintptr(0), dup}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := os.FindProcess(pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { second.Kill(); second.Wait() })
 		},
 		"list call answers an error": func(t *testing.T, d *fakeDaemon) { d.status = http.StatusInternalServerError },
 		"list call answers no list":  func(t *testing.T, d *fakeDaemon) { d.body = `{"message":"Not Found"}` },
