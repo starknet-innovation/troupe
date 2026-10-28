@@ -242,3 +242,61 @@ func TestLockExcludesShellFlock(t *testing.T) {
 		t.Fatalf("shell flock after release: %v", err)
 	}
 }
+
+// VMGone reads containerd's task folder. A host where no VM has run yet has an empty task root,
+// which is gone; a missing root, another namespace, a live shim or an unreadable task is not.
+func TestVMGone(t *testing.T) {
+	paths := Paths{Sandboxd: t.TempDir()}
+	root := filepath.Join(paths.Sandboxd, "containerd", "state", "io.containerd.runtime.v2.task")
+	if VMGone(paths, "ada") {
+		t.Fatal("gone without a task root")
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !VMGone(paths, "ada") {
+		t.Fatal("not gone on a host where no VM has run")
+	}
+	// A task root holding anything but docker is a layout this does not know.
+	elsewhere := filepath.Join(root, "renamed", "abc")
+	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if VMGone(paths, "ada") {
+		t.Fatal("gone with tasks under another namespace")
+	}
+	os.RemoveAll(filepath.Join(root, "renamed"))
+	task := filepath.Join(root, "docker", "abc")
+	if err := os.MkdirAll(task, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(file, text string) {
+		if err := os.WriteFile(filepath.Join(task, file), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("config.json", `{"hostname":"ada"}`)
+	write("shim.pid", strconv.Itoa(os.Getpid()))
+	if VMGone(paths, "ada") {
+		t.Fatal("gone while its shim runs")
+	}
+	if !VMGone(paths, "grace") {
+		t.Fatal("another VM's shim keeps grace")
+	}
+	write("shim.pid", "0")
+	if VMGone(paths, "ada") {
+		t.Fatal("gone with an unreadable shim pid")
+	}
+	exited := exec.Command("true")
+	if err := exited.Run(); err != nil {
+		t.Fatal(err)
+	}
+	write("shim.pid", strconv.Itoa(exited.Process.Pid))
+	if !VMGone(paths, "ada") {
+		t.Fatal("not gone after its shim exited")
+	}
+	write("config.json", `not json`)
+	if VMGone(paths, "ada") {
+		t.Fatal("gone with an unreadable task config")
+	}
+}

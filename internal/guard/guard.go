@@ -273,8 +273,15 @@ func (l *Lock) Release() error {
 // names that hostname has a shim that has exited. This reads containerd's own state on the
 // host and never execs into the VM, so it cannot boot a stopped one.
 func VMGone(paths Paths, name string) bool {
-	tasks := filepath.Join(paths.Sandboxd, "containerd", "state", "io.containerd.runtime.v2.task", "docker")
+	root := filepath.Join(paths.Sandboxd, "containerd", "state", "io.containerd.runtime.v2.task")
+	tasks := filepath.Join(root, "docker")
 	entries, err := os.ReadDir(tasks)
+	if errors.Is(err, os.ErrNotExist) {
+		// A host where no VM has run yet has an empty task root: no VM is left. A missing root,
+		// or anything else in it (another namespace, a layout this does not know), never counts.
+		rest, err := os.ReadDir(root)
+		return err == nil && len(rest) == 0
+	}
 	if err != nil {
 		return false
 	}
