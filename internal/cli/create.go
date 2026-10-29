@@ -26,6 +26,7 @@ import (
 	"github.com/starknet-innovation/troupe/internal/registry"
 	"github.com/starknet-innovation/troupe/internal/sbx"
 	"github.com/starknet-innovation/troupe/internal/secret"
+	"github.com/starknet-innovation/troupe/internal/sudo"
 )
 
 // createFlags are create's options for a published agent.
@@ -673,9 +674,7 @@ func approveTier(e env, printer *progress.Printer, name string) (secret.Tier, er
 
 // askSudo asks for sudo now and keeps the credential fresh until stop is called.
 func askSudo(ctx context.Context) (stop func(), err error) {
-	verify := exec.CommandContext(ctx, "sudo", "-v")
-	verify.Stdin, verify.Stdout, verify.Stderr = os.Stdin, os.Stderr, os.Stderr
-	if verify.Run() != nil {
+	if sudo.Ask(ctx, os.Stdin) != nil {
 		return nil, errors.New("sudo_required")
 	}
 	done := make(chan struct{})

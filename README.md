@@ -26,7 +26,10 @@ Run it as the user who will own the agents, not root. The installer puts troupe 
 (`sbx-daemon.service`, which runs the sandbox daemon, and `hermes-gateway@.service`, each agent's
 gateway), asking for sudo only when they are missing or changed, or the daemon is not running
 under its unit. It refuses while a sandbox daemon runs outside that unit (stop it with `sbx daemon
-stop` first), and leaves the units out until sbx is installed (run it again then). A machine that
+stop` first), and leaves the units out until sbx is installed and signed in to Docker (`sbx login`;
+run it again then): signed out, sbx refuses every sandbox command, so the daemon could not start. Once the daemon
+runs, it sets the machine's sandbox network policy to `balanced` when none is set (sbx creates no sandbox
+without one); a policy already set is never replaced. A machine that
 fails the doctor, or any failure or interruption, leaves the troupe binary that was there before;
 units already written stay, and a later run finishes them. A downloaded release is checked against the release's `SHA256SUMS`, which
 catches a corrupted download; it comes from the same place as the binary.
@@ -44,6 +47,7 @@ stops it):
 | Software | systemd (one older than 259, the version troupe is tested on, is noted) | asks for your action |
 | Software | Docker with buildx | asks for your action |
 | Software | sbx 0.48 or newer | asks for your action |
+| Software | sbx signed in to Docker (read from sbx's sign-in store, without running sbx) | asks for your action (`sbx login`) |
 | Software | sudo | asks for your action |
 | Software | troupe's systemd units installed and current, running the sandbox daemon | asks for your action (run the installer again) |
 

@@ -23,6 +23,7 @@ import (
 	"github.com/starknet-innovation/troupe/internal/guest"
 	"github.com/starknet-innovation/troupe/internal/progress"
 	"github.com/starknet-innovation/troupe/internal/sbx"
+	"github.com/starknet-innovation/troupe/internal/sudo"
 )
 
 // Agent is one agent and the host it runs on.
@@ -166,9 +167,7 @@ func (s *session) close() {
 // begin asks for sudo once (the only interactive privileged step), takes the host-wide and
 // per-agent locks shared with every other maintenance tool, keeps sudo alive and probes.
 func (a *Agent) begin(ctx context.Context) (*session, error) {
-	verify := exec.CommandContext(ctx, "sudo", "-v")
-	verify.Stdin, verify.Stdout, verify.Stderr = a.Terminal, os.Stderr, os.Stderr
-	if err := verify.Run(); err != nil {
+	if err := sudo.Ask(ctx, a.Terminal); err != nil {
 		return nil, Failure{"preflight", "sudo_required"}
 	}
 	s := &session{}

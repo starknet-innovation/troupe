@@ -196,6 +196,10 @@ func listSandboxes(ctx context.Context, socket string) error {
 		return fmt.Errorf("sandboxd does not answer: %w", err)
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized {
+		// Signed out, sandboxd refuses the list (sbx 0.50.1).
+		return fmt.Errorf("sandboxd answered %s: sbx is not signed in to Docker (run sbx login)", response.Status)
+	}
 	if response.StatusCode >= 400 {
 		return fmt.Errorf("sandboxd answered %s", response.Status)
 	}

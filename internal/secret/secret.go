@@ -26,6 +26,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/starknet-innovation/troupe/internal/sbx"
+	"github.com/starknet-innovation/troupe/internal/sudo"
 )
 
 // Service is one secret an agent uses.
@@ -416,9 +417,7 @@ func (s *Store) Set(ctx context.Context, name string) (wired, newService bool, e
 	}
 	// Encryption reads the root-only host key; a plain file needs no sudo.
 	if tier != File {
-		verify := exec.CommandContext(ctx, "sudo", "-v")
-		verify.Stdin, verify.Stdout, verify.Stderr = os.Stdin, os.Stderr, os.Stderr
-		if err := verify.Run(); err != nil {
+		if err := sudo.Ask(ctx, os.Stdin); err != nil {
 			return false, false, Failure{"sudo_required"}
 		}
 	}

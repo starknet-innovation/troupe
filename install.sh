@@ -74,6 +74,14 @@ main() {
     say "installed troupe without its systemd units: install docker-sbx, then run the installer again"
     return 0
   fi
+  # Signed out, sbx refuses every sandbox command and sandboxd answers the unit's probe with a
+  # 401: the daemon could only fail to start. The units wait for sbx login, as they wait for sbx.
+  if grep -q ' sign-in: ACTION' "$work/doctor"; then
+    finished=1
+    grep 'ACTION' "$work/doctor" || true
+    say "installed troupe without its systemd units: sign sbx in to Docker (sbx login), then run the installer again"
+    return 0
+  fi
   changed=""
   for unit in sbx-daemon.service hermes-gateway@.service; do
     "$target" units render "$unit" > "$work/$unit"
@@ -95,7 +103,9 @@ main() {
       fi
     fi
     say "installing troupe's systemd units and starting sbx-daemon.service (sudo)"
-    sudo -v || die "sudo is needed to install troupe's systemd units"
+    # A passwordless sudo is asked nothing: sudo-rs (Ubuntu 26.04's) prompts on -v even under
+    # NOPASSWD, for a password a cloud user (EC2's ubuntu) does not have.
+    sudo -n true 2>/dev/null || sudo -v || die "sudo is needed to install troupe's systemd units"
     for unit in $changed; do
       sudo install -m 644 "$work/$unit" "$unit_dir/$unit"
     done
@@ -106,6 +116,24 @@ main() {
     fi
     "$target" doctor > "$work/doctor" 2>&1 || true
   fi
+  # sbx creates no sandbox until the machine's global network policy is set: a new machine gets
+  # balanced (typical development traffic). init refuses on a machine that has one, so a policy
+  # is never replaced. sbx runs only after the probe, so it meets the unit's daemon.
+  "$target" guard probe --wait 75s > "$work/probe" 2>&1 || {
+    cat "$work/probe" >&2
+    die "the sandbox daemon does not answer troupe's probe"
+  }
+  if "$sbx" policy init balanced < /dev/null > "$work/policy" 2>&1; then
+    say "set this machine's sandbox network policy to balanced"
+  elif ! grep -q 'already initialized' "$work/policy"; then
+    cat "$work/policy" >&2
+    die "could not set the sandbox network policy (sbx policy init balanced)"
+  fi
+  # sbx policy reset replaces the unit's daemon with its own (sbx 0.50.1): init must not have.
+  "$target" guard probe > "$work/probe" 2>&1 || {
+    cat "$work/probe" >&2
+    die "the sandbox daemon no longer answers troupe's probe after sbx policy init"
+  }
   finished=1
 
   # 5. What is left for the user, and the next step.

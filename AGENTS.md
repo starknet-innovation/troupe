@@ -8,7 +8,7 @@ troupe is a Go CLI that manages Hermes agents, each in its own Docker Sandbox. T
 - Never commit automatically. Report verified scope and evidence, then ask the owner to approve. Before asking, audit the uncommitted diff once with an independent reviewer against the README's [security model](README.md#security-model).
 - The owner's approval to commit also covers the rest: commit, push `main` to `origin` (fetch first; stop and report if it isn't a fast-forward), then rebuild the installed dev build ([development.md](docs/development.md)) and confirm `troupe version` shows the new commit. Push at no other time without the owner's explicit request.
 - This repository is meant to be published: nothing private goes in it, no real agent, person, account, channel or machine names, identifiers or credentials. Examples use the fictional kit in [`examples/kit`](examples/kit).
-- Never invoke `sudo`, even as a probe. Hand the owner one reviewable command.
+- Use `sudo` only on a machine where it is configured to need no password (NOPASSWD, as on an EC2 host), not merely one with a credential still cached. Where it asks for one, never prompt: hand the owner one reviewable command.
 - Before **any** `sbx` command, run the honest sandboxd probe (`troupe guard probe`).
 
 ## Working style

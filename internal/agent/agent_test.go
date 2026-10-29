@@ -41,6 +41,7 @@ d=$(dirname "$0")/..
 echo "sudo $*" >> "$d/calls"
 if [ "$1" = "-v" ]; then exit "$(cat "$d/sudo-exit" 2>/dev/null || echo 0)"; fi
 if [ "$1" = "-n" ] && [ "$2" = "-v" ]; then exit 0; fi
+if [ "$1" = "-n" ] && [ "$2" = "true" ]; then [ -f "$d/sudo-nopasswd" ]; exit; fi
 shift
 exec "$@"
 `
@@ -318,6 +319,21 @@ func TestStartRefusesBeforeAnyChange(t *testing.T) {
 				t.Fatalf("changed the unit:\n%s", h.calls())
 			}
 		})
+	}
+}
+
+// Passwordless sudo is enough: sudo -v, which sudo-rs answers with a password prompt even under
+// NOPASSWD, is never run.
+func TestPasswordlessSudoIsNeverVerified(t *testing.T) {
+	h := newHost(t)
+	h.write("stop-makes-stopped", "")
+	h.write("sudo-nopasswd", "")
+	h.write("sudo-exit", "1")
+	if err := h.agent.Stop(context.Background(), 60); err != nil {
+		t.Fatalf("%v\n%s", err, h.lines())
+	}
+	if h.has("sudo -v") {
+		t.Fatalf("verified a passwordless sudo:\n%s", h.calls())
 	}
 }
 

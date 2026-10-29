@@ -22,8 +22,10 @@ case "$1" in
       slow) sleep 1 ;;
       fail) echo "[10:00:00] This machine kvm: FAILED. /dev/kvm is not usable."; exit 1 ;;
       warn) echo "[10:00:00] This machine sbx: ACTION. sbx was not found." ;;
+      signedout) echo "[10:00:00] This machine sign-in: ACTION. sbx is not signed in to Docker: run sbx login" ;;
       *) echo "[10:00:00] This machine kvm: ok." ;;
     esac ;;
+  guard) [ "$FAKE_PROBE" = fail ] && { echo "sandboxd does not answer"; exit 1; }; exit 0 ;;
   units) [ "$FAKE_RENDER" = fail ] && { echo "troupe: render failed" >&2; exit 1; }; printf '%s %s\n' "$UNIT_TEXT" "$3" ;;
 esac
 `
@@ -45,7 +47,10 @@ func newInstaller(t *testing.T) *installer {
 		os.MkdirAll(d, 0o755)
 	}
 	i.write(i.binary, fakeTroupe, 0o755)
-	i.write(filepath.Join(i.bin, "sudo"), "#!/bin/sh\necho \"sudo $*\" >> \""+i.bin+"/calls\"\n[ \"$1\" = -v ] && exit 0\nexec \"$@\"\n", 0o755)
+	// sudo -n true passes only with FAKE_NOPASSWD; sudo -v fails with FAKE_VERIFY=fail.
+	i.write(filepath.Join(i.bin, "sudo"), "#!/bin/sh\necho \"sudo $*\" >> \""+i.bin+"/calls\"\n"+
+		"[ \"$1\" = -n ] && { [ -n \"$FAKE_NOPASSWD\" ]; exit; }\n"+
+		"[ \"$1\" = -v ] && { [ \"$FAKE_VERIFY\" != fail ]; exit; }\nexec \"$@\"\n", 0o755)
 	// systemctl: enable --now makes the unit enabled and active (unless fail-enable exists);
 	// show prints the unit's MainPID from the mainpid file.
 	i.write(filepath.Join(i.bin, "systemctl"), `#!/bin/sh
@@ -64,10 +69,20 @@ echo "systemctl $*" >> "$d/calls"
 [ "$1" = enable ] && { [ -f "$d/fail-enable" ] && exit 1; touch "$d/active"; rm -f "$d/unitfilestate"; }
 exit 0
 `, 0o755)
+	// sbx: policy init sets the policy, or answers as sbx does when FAKE_POLICY says the machine
+	// has one already, or fails. Its calls go to sbx-calls.
+	i.write(filepath.Join(i.bin, "sbx"), `#!/bin/sh
+echo "sbx $*" >> "$(dirname "$0")/sbx-calls"
+case "$FAKE_POLICY" in
+  set) echo "error: global network policy is already initialized; reset it first to change it"; exit 1 ;;
+  fail) echo "error: something else"; exit 1 ;;
+esac
+echo "Initialized global network policy $3"
+`, 0o755)
 	i.write(filepath.Join(i.bin, "id"), "#!/bin/sh\necho \"${FAKE_UID:-1000}\"\n", 0o755)
 	i.write(filepath.Join(i.bin, "uname"), "#!/bin/sh\n[ \"$1\" = -m ] && { echo \"${FAKE_ARCH:-x86_64}\"; exit 0; }\necho Linux\n", 0o755)
 	i.env = []string{"HOME=" + i.home, "PATH=" + i.bin + ":/usr/bin:/bin", "TROUPE_UNIT_DIR=" + i.units,
-		"TROUPE_BINARY=" + i.binary, "UNIT_TEXT=v1", "TROUPE_SBX=/bin/sh", "TROUPE_SANDBOXD_DIR=" + filepath.Join(dir, "sandboxd")}
+		"TROUPE_BINARY=" + i.binary, "UNIT_TEXT=v1", "TROUPE_SBX=" + filepath.Join(i.bin, "sbx"), "TROUPE_SANDBOXD_DIR=" + filepath.Join(dir, "sandboxd")}
 	return i
 }
 
@@ -120,6 +135,62 @@ func TestInstallPutsTroupeInPlaceAndItsUnits(t *testing.T) {
 	// A changed unit is installed again, through sudo.
 	if code, out := i.run("UNIT_TEXT=v2"); code != 0 || !strings.Contains(i.calls(), "sudo install") {
 		t.Fatalf("exit %d, calls %q:\n%s", code, i.calls(), out)
+	}
+}
+
+// A passwordless sudo is never verified: sudo-rs prompts on -v even under NOPASSWD, for a
+// password a cloud user does not have.
+func TestPasswordlessSudoIsNeverVerified(t *testing.T) {
+	i := newInstaller(t)
+	code, out := i.run("FAKE_NOPASSWD=1", "FAKE_VERIFY=fail")
+	if code != 0 || strings.Contains(i.calls(), "sudo -v") || !strings.Contains(i.calls(), "sudo install") {
+		t.Fatalf("exit %d, calls %q:\n%s", code, i.calls(), out)
+	}
+	// With a password, sudo -v asks; refused, nothing is installed.
+	j := newInstaller(t)
+	if code, out := j.run("FAKE_VERIFY=fail"); code == 0 || !strings.Contains(out, "sudo is needed") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+}
+
+// Signed out, sandboxd answers the unit's probe with a 401, so the daemon could only fail: the
+// installer keeps troupe, asks for sbx login, and writes no unit and asks no sudo until then.
+func TestSignedOutWaitsForSbxLogin(t *testing.T) {
+	i := newInstaller(t)
+	code, out := i.run("FAKE_DOCTOR=signedout")
+	if code != 0 || i.installed() != fakeTroupe || !strings.Contains(out, "sign sbx in to Docker (sbx login)") ||
+		!strings.Contains(out, "sign-in: ACTION") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	if i.calls() != "" {
+		t.Fatalf("calls before sbx login:\n%s", i.calls())
+	}
+	if entries, _ := os.ReadDir(i.units); len(entries) != 0 {
+		t.Fatalf("units written: %v", entries)
+	}
+	// Signed in, the same run installs the units.
+	if code, out := i.run(); code != 0 || !strings.Contains(i.calls(), "systemctl enable --now sbx-daemon.service") {
+		t.Fatalf("exit %d, calls %q:\n%s", code, i.calls(), out)
+	}
+}
+
+// A new machine's sandboxes need a global network policy: the installer sets balanced after the
+// probe, never replaces one already set, and stops when sbx refuses otherwise.
+func TestInstallSetsTheNetworkPolicyOnce(t *testing.T) {
+	i := newInstaller(t)
+	sbxCalls := func() string { data, _ := os.ReadFile(filepath.Join(i.bin, "sbx-calls")); return string(data) }
+	if code, out := i.run(); code != 0 || !strings.Contains(out, "network policy to balanced") || sbxCalls() != "sbx policy init balanced\n" {
+		t.Fatalf("exit %d, sbx %q:\n%s", code, sbxCalls(), out)
+	}
+	if code, out := i.run("FAKE_POLICY=set"); code != 0 || strings.Contains(out, "network policy to balanced") {
+		t.Fatalf("policy already set: exit %d:\n%s", code, out)
+	}
+	if code, out := i.run("FAKE_POLICY=fail"); code == 0 || !strings.Contains(out, "could not set the sandbox network policy") {
+		t.Fatalf("policy refused: exit %d:\n%s", code, out)
+	}
+	os.Remove(filepath.Join(i.bin, "sbx-calls"))
+	if code, out := i.run("FAKE_PROBE=fail"); code == 0 || sbxCalls() != "" {
+		t.Fatalf("probe failed: exit %d, sbx %q:\n%s", code, sbxCalls(), out)
 	}
 }
 

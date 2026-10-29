@@ -165,6 +165,15 @@ func TestProbeFails(t *testing.T) {
 	}
 }
 
+// Signed out, sandboxd refuses the list with a 401: the probe says what to run.
+func TestProbeNamesASignedOutSbx(t *testing.T) {
+	d := newFakeDaemon(t)
+	d.status = http.StatusUnauthorized
+	if err := Probe(context.Background(), d.paths); err == nil || !strings.Contains(err.Error(), "sbx login") {
+		t.Fatalf("err %v", err)
+	}
+}
+
 func TestProbeWaitRetriesUntilReady(t *testing.T) {
 	d := newFakeDaemon(t)
 	d.setMainPID(t, 0)

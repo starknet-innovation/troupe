@@ -1,9 +1,11 @@
 package doctor
 
 import (
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,6 +21,13 @@ func ready(t *testing.T) Host {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "kvm"), nil, 0o600); err != nil {
 		t.Fatal(err)
+	}
+	// sbx's sign-in store, signed in as jane: entries named by their key in base64.
+	auth := filepath.Join(dir, "sandboxes-auth")
+	for _, key := range []string{"docker/auth/hub/jane", "docker/auth/metadata/hub/default"} {
+		if err := os.MkdirAll(filepath.Join(auth, base64.StdEncoding.EncodeToString([]byte(key))), 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	answers := map[string]string{
 		"systemctl --version":                         "systemd 259 (259.5-0ubuntu3.4)\n+PAM\n",
@@ -43,6 +52,7 @@ func ready(t *testing.T) Host {
 		},
 		LookPath: func(string) (string, error) { return "/usr/bin/sudo", nil },
 		Units:    func() error { return nil },
+		SignAuth: auth,
 	}
 }
 
@@ -61,7 +71,7 @@ func TestAReadyMachinePassesEveryCheck(t *testing.T) {
 			t.Errorf("%s: %d %s", l.Name, l.Level, l.Message)
 		}
 	}
-	if len(lines) != 9 || Failed(lines) {
+	if len(lines) != 10 || Failed(lines) {
 		t.Fatalf("lines %v", lines)
 	}
 }
@@ -178,8 +188,79 @@ func TestMissingSoftwareWarns(t *testing.T) {
 	}
 	h = ready(t)
 	h.Units = func() error { return errors.New("sbx-daemon.service is not installed: run the installer again") }
-	if lines := Check(h); levels(lines)["units"] != Warn || !strings.Contains(lines[8].Message, "run the installer again") {
+	if lines := Check(h); levels(lines)["units"] != Warn || !strings.Contains(lines[9].Message, "run the installer again") {
 		t.Fatalf("units: %v", lines)
+	}
+}
+
+// Signed out, sbx refuses every sandbox command and troupe's daemon unit cannot start: that asks
+// for sbx login. Only a docker/auth/hub/ACCOUNT entry counts as signed in.
+func TestSignedOutAsksForSbxLogin(t *testing.T) {
+	for name, signOut := range map[string]func(h *Host){
+		"no store":       func(h *Host) { h.SignAuth = filepath.Join(t.TempDir(), "missing") },
+		"an empty store": func(h *Host) { h.SignAuth = t.TempDir() },
+		"only the metadata": func(h *Host) {
+			os.RemoveAll(filepath.Join(h.SignAuth, base64.StdEncoding.EncodeToString([]byte("docker/auth/hub/jane"))))
+		},
+		"an unreadable name": func(h *Host) { h.SignAuth = t.TempDir(); os.Mkdir(filepath.Join(h.SignAuth, "not base64!"), 0o700) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := ready(t)
+			signOut(&h)
+			lines := Check(h)
+			if levels(lines)["sign-in"] != Warn || Failed(lines) || !strings.Contains(lines[7].Message, "sbx login") {
+				t.Fatalf("%v", lines)
+			}
+		})
+	}
+}
+
+// A TPM that only lacks systemd's libraries (Ubuntu's cloud image on EC2) names them, not the
+// firmware; anything else missing keeps the general advice.
+func TestKeysLineNamesMissingTPMLibraries(t *testing.T) {
+	for name, c := range map[string]struct {
+		hasTPM2 string
+		want    string
+	}{
+		"only libraries": {"partial\n+firmware\n+driver\n+system\n+subsystem\n-libraries\n  +libtss2-esys.so.0\n  -libtss2-rc.so.0\n  +libtss2-mu.so.0\n", "lacks its libraries (libtss2-rc.so.0)"},
+		"no firmware":    {"no\n-firmware\n-driver\n+system\n+subsystem\n-libraries\n  -libtss2-rc.so.0\n", "enable it in the firmware"},
+		"no answer":      {"", "enable it in the firmware"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := ready(t)
+			run := h.Run
+			h.Run = func(program string, args ...string) (string, error) {
+				switch strings.Join(append([]string{program}, args...), " ") {
+				case "systemd-analyze has-tpm2 --quiet":
+					return "", errors.New("exit status 16")
+				case "systemd-analyze has-tpm2":
+					return c.hasTPM2, errors.New("exit status 16")
+				}
+				return run(program, args...)
+			}
+			for _, l := range Check(h) {
+				if l.Name == "keys" && (l.Level != Note || !strings.Contains(l.Message, c.want)) {
+					t.Fatalf("%+v", l)
+				}
+			}
+		})
+	}
+}
+
+// On a desktop whose keyring runs, sbx may keep its sign-in there, out of troupe's sight: a
+// note, so a signed-in user is never blocked.
+func TestARunningKeyringMakesSignInANote(t *testing.T) {
+	h := ready(t)
+	h.SignAuth = t.TempDir()
+	run := h.Run
+	h.Run = func(program string, args ...string) (string, error) {
+		if program == "busctl" && slices.Contains(args, "org.freedesktop.secrets") {
+			return "b true\n", nil
+		}
+		return run(program, args...)
+	}
+	if got := levels(Check(h)); got["sign-in"] != Note {
+		t.Fatalf("%v", got)
 	}
 }
 

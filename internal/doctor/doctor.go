@@ -5,6 +5,7 @@ package doctor
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -47,10 +49,12 @@ type Host struct {
 	Run      func(name string, args ...string) (string, error) // a program's standard output
 	LookPath func(name string) (string, error)
 	Units    func() error // troupe's units are installed, current and running the sandbox daemon
+	SignAuth string       // sbx's sign-in store, a folder
 }
 
 // Default is this machine.
 func Default(sandboxd string, units func() error) Host {
+	config, _ := os.UserConfigDir()
 	return Host{
 		Arch: runtime.GOARCH, KVM: "/dev/kvm",
 		Budget:  budget.Paths{Meminfo: "/proc/meminfo", Proc: "/proc", Sandboxd: sandboxd},
@@ -64,6 +68,7 @@ func Default(sandboxd string, units func() error) Host {
 		},
 		LookPath: exec.LookPath,
 		Units:    units,
+		SignAuth: filepath.Join(config, "com.docker.sandboxes", "com.docker.sandboxes-auth", "sandboxes-auth"),
 	}
 }
 
@@ -78,7 +83,7 @@ var (
 // Check runs every check, hardware first.
 func Check(h Host) []Line {
 	lines := []Line{arch(h), kvm(h), keys(h), room(h)}
-	return append(lines, systemd(h), docker(h), sbxVersion(h), sudo(h), units(h))
+	return append(lines, systemd(h), docker(h), sbxVersion(h), signIn(h), sudo(h), units(h))
 }
 
 // Failed reports whether any line failed.
@@ -118,7 +123,34 @@ func keys(h Host) Line {
 	if tier == secret.TPM {
 		return Line{"keys", OK, "TPM 2.0: " + tier.Describe()}
 	}
+	if missing := tpmLibraries(h); tier == secret.Host && missing != "" {
+		return Line{"keys", Note, tier.Describe() + "; create asks before using it. This machine has a TPM 2.0, but systemd lacks its libraries (" +
+			missing + "): install them (on Ubuntu, the libtss2 packages, such as libtss2-rc0t64), and keys are sealed by it"}
+	}
 	return Line{"keys", Note, tier.Describe() + "; create asks before using it. TPM sealing needs " + tier.Upgrade()}
+}
+
+// tpmLibraries names the libraries systemd lacks when they are all that stands between it and a
+// working TPM, or is "" otherwise. Ubuntu 26.04's cloud image ships without libtss2-rc, so an EC2
+// instance with NitroTPM reads as having none (2026-10-29). has-tpm2 lists each part as + or -.
+func tpmLibraries(h Host) string {
+	out, _ := h.Run("systemd-analyze", "has-tpm2")
+	parts := strings.Fields(out)
+	for _, want := range []string{"+firmware", "+driver", "+system", "+subsystem", "-libraries"} {
+		if !slices.Contains(parts, want) {
+			return ""
+		}
+	}
+	var missing []string
+	for _, p := range parts {
+		if strings.HasPrefix(p, "-lib") && p != "-libraries" {
+			missing = append(missing, strings.TrimPrefix(p, "-"))
+		}
+	}
+	if len(missing) == 0 {
+		return "unnamed"
+	}
+	return strings.Join(missing, ", ")
 }
 
 // room is one coder agent at its default size against an empty machine, with the reserves create
@@ -199,6 +231,29 @@ func sbxVersion(h Host) Line {
 		return Line{"sbx", Warn, fmt.Sprintf("sbx %s.%s.%s is older than 0.48: upgrade docker-sbx", m[1], m[2], m[3])}
 	}
 	return Line{"sbx", OK, fmt.Sprintf("sbx %s.%s.%s", m[1], m[2], m[3])}
+}
+
+// signIn is sbx's Docker sign-in: signed out, sbx refuses every sandbox command and sandboxd
+// answers the probe with a 401, so troupe's daemon unit cannot start (sbx 0.50.1). It reads
+// sbx's sign-in store, never sbx: each entry is named by its key in base64, and a signed-in sbx
+// holds docker/auth/hub/ACCOUNT. A store sbx lays out differently reads as signed out, and the
+// probe's 401 stays the backstop.
+func signIn(h Host) Line {
+	entries, _ := os.ReadDir(h.SignAuth)
+	for _, e := range entries {
+		key, err := base64.StdEncoding.DecodeString(e.Name())
+		if err == nil && strings.HasPrefix(string(key), "docker/auth/hub/") {
+			return Line{"sign-in", OK, "sbx is signed in to Docker"}
+		}
+	}
+	// sbx keeps its secrets in a running desktop keyring (Secret Service) instead, by its own
+	// strings (unmeasured): there troupe cannot tell, so it is a note, never in the way.
+	if out, err := h.Run("busctl", "--user", "call", "org.freedesktop.DBus", "/org/freedesktop/DBus",
+		"org.freedesktop.DBus", "NameHasOwner", "s", "org.freedesktop.secrets"); err == nil && strings.TrimSpace(out) == "b true" {
+		return Line{"sign-in", Note, "sbx's Docker sign-in is not in its folder, and this desktop runs a keyring, where sbx may keep it; " +
+			"if sbx is signed out, the sandbox daemon's start says so (sbx login)"}
+	}
+	return Line{"sign-in", Warn, "sbx is not signed in to Docker: run sbx login"}
 }
 
 func sudo(h Host) Line {
