@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -154,7 +155,7 @@ func createPublished(e env, typ string, f createFlags) int {
 	repository := machine.Registry + "/" + typ
 	host, _, _ := strings.Cut(machine.Registry, "/")
 	printer.Print("kit", progress.Started, "Finding the latest "+repository+" kit")
-	img, err := resolve(e, docker, runner, repository, host)
+	img, err := resolve(e, printer, docker, runner, repository, host)
 	if err != nil {
 		return report("kit", err)
 	}
@@ -248,15 +249,24 @@ func createPublished(e env, typ string, f createFlags) int {
 	return runRecreate(e, name, true, skipBudget) // checked above, before the keys
 }
 
-// resolve pins the latest kit. When the registry refuses Docker, or sbx has no credential for it,
-// it asks once for a token that reads the kits and gives it to both.
-func resolve(e env, docker published.Docker, runner sbx.Runner, repository, host string) (published.Image, error) {
+// resolve pins the latest kit. When the registry refuses Docker, or sbx has no credential for a
+// kit that is not public, it asks once for a token that reads the kits and gives it to both.
+func resolve(e env, printer *progress.Printer, docker published.Docker, runner sbx.Runner, repository, host string) (published.Image, error) {
+	// sbx must accept the registry's kits before anything reads one: a fresh sbx does not.
+	if added, err := runner.AllowKitSource(e.ctx, path.Dir(repository)); errors.Is(err, sbx.ErrProbe) {
+		return published.Image{}, err
+	} else if err != nil {
+		return published.Image{}, fmt.Errorf("kit_source_not_allowed: %v", err)
+	} else if added {
+		printer.Print("kit", progress.Info, "Allowed sbx to read kits from "+path.Dir(repository)+"/")
+	}
 	stored, err := published.HasRegistrySecret(e.ctx, runner, host)
 	if err != nil {
 		return published.Image{}, err
 	}
 	img, err := docker.Resolve(e.ctx, repository)
-	if err == nil && stored {
+	// A public kit needs no token: sbx reads it, and its daemon pulls it, without one.
+	if err == nil && (stored || docker.Public(e.ctx, img.Reference)) {
 		return img, nil
 	}
 	if err != nil && !errors.Is(err, published.ErrAccess) {

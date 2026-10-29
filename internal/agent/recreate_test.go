@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,6 +40,7 @@ case "$1" in
        [ -f "$d/image-ada" ] && echo "sandbox-kit-assembled:new" > "$d/image-ada"
        python3 -c 'import json,sys; p=sys.argv[1]; json.dump([s for s in json.load(open(p)) if s["name"]!="ada"]+[{"name":"ada","id":"new","status":"running"}], open(p,"w"))' "$d/inventory.json" ;;
   kit) echo "sbx kit $2" >> "$d/calls"; exit 1 ;;
+  settings) if [ "$2" = get ]; then cat "$d/sources" 2>/dev/null || echo '["docker.io/"]'; else echo "sbx settings set $4" >> "$d/calls"; echo "$4" > "$d/sources"; fi ;;
   inspect) [ -f "$d/image-$2" ] || exit 1; printf '[{"name":"%s","image":"%s"}]' "$2" "$(cat "$d/image-$2")" ;;
   template) if [ "$2" = ls ]; then cat "$d/templates.json" 2>/dev/null || echo '[]'; else echo "sbx template $*" >> "$d/calls"; if [ -f "$d/fail-template-rm" ]; then exit 1; fi; fi ;;
   secret)
@@ -908,6 +910,41 @@ exit 0
 	return data
 }
 
+// Recreating a published agent (reset, resize) makes sbx accept its kit's registry before the old
+// VM is removed: sbx env create reads the kit after, and a fresh sbx accepts only docker.io/.
+// A setting troupe cannot read stops it while the old VM still runs.
+func TestRecreatingAPublishedAgentAllowsItsRegistryFirst(t *testing.T) {
+	setup := func(t *testing.T) *rig {
+		r := newRig(t)
+		data := r.published()
+		r.agent.Slack = false
+		kit, err := ReadKit(registry.Registry{Data: data}, "ada")
+		if err != nil {
+			t.Fatal(err)
+		}
+		services, err := secret.Services("ada", []string{"venice"}, kit.Base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.opts.Secrets.Services = services
+		r.opts.Kit = kit
+		return r
+	}
+	r := setup(t)
+	r.run()
+	prefix := path.Dir(publishedRef) + "/"
+	r.order(`sbx settings set ["docker.io/","`+prefix+`"]`, "sbx env plan", "docker pull "+publishedRef, "sbx rm")
+	if !strings.Contains(r.out.String(), "Allowed sbx to read kits from "+prefix) {
+		t.Fatalf("output:\n%s", r.out.String())
+	}
+
+	r = setup(t)
+	r.write("sources", "null\n")
+	if err := r.run(); failureClass(err) != "kit_source_not_allowed" || strings.Contains(r.calls(), "sbx rm") {
+		t.Fatalf("err %v\n%s", err, r.calls())
+	}
+}
+
 func TestCreateAPublishedAgent(t *testing.T) {
 	r := newRig(t)
 	data := r.published()
@@ -931,6 +968,8 @@ func TestCreateAPublishedAgent(t *testing.T) {
 	if err := r.run(); err != nil {
 		t.Fatalf("%v\n%s", err, r.calls())
 	}
+	// A creation, resumed or not, has no plan: sbx accepts the registry before it reads the kit.
+	r.order(`sbx settings set ["docker.io/","`+path.Dir(publishedRef)+`/"]`, "sbx env create")
 	if !strings.Contains(r.out.String(), "Ada creation: Getting the published kit, adding Ada's settings and creating the new VM.") {
 		t.Fatalf("output:\n%s", r.out.String())
 	}

@@ -447,8 +447,28 @@ func (r *recreation) createPreflight(ctx context.Context) error {
 // so a kit sbx would refuse fails here, before anything changes. sbx builds the image itself
 // at sbx env create.
 func (r *recreation) plan(ctx context.Context, step string) error {
+	if err := r.allowKitSource(ctx, step); err != nil {
+		return err
+	}
 	if _, err := r.Runner.Output(ctx, sbx.Call{Args: []string{"env", "plan", r.o.Kit.sbxenv}, Env: r.o.Kit.StorageEnv}); err != nil {
 		return Failure{step, "kit_invalid; sbx env plan " + r.o.Kit.sbxenv}
+	}
+	return nil
+}
+
+// allowKitSource makes sbx accept a published kit's registry (a fresh sbx accepts only
+// docker.io/). plan runs it first, while the old VM still runs, before sbx resolves the kit; a
+// creation, which has no plan, runs it before sbx env create.
+func (r *recreation) allowKitSource(ctx context.Context, step string) error {
+	if r.o.Kit.Reference == "" {
+		return nil
+	}
+	added, err := r.Runner.AllowKitSource(ctx, path.Dir(r.o.Kit.Reference))
+	if err != nil {
+		return Failure{step, "kit_source_not_allowed"}
+	}
+	if added {
+		r.Printer.Print(step, progress.Info, "Allowed sbx to read kits from "+path.Dir(r.o.Kit.Reference)+"/")
 	}
 	return nil
 }
@@ -740,6 +760,9 @@ func (r *recreation) provision(ctx context.Context, step string) error {
 	creating := "Building the image and creating the new VM from the kits"
 	if r.o.Kit.Reference != "" {
 		creating = "Getting the published kit, adding " + r.Printer.Agent + "'s settings and creating the new VM"
+	}
+	if err := r.allowKitSource(ctx, step); err != nil {
+		return err
 	}
 	r.Printer.Print(step, progress.Info, creating)
 	if _, err := r.Runner.Output(ctx, sbx.Call{Args: []string{"env", "create", r.o.Kit.sbxenv, "--force"},

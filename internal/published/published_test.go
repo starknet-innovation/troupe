@@ -37,6 +37,8 @@ case "$1" in
   create) echo 0123456789abcdef0123456789abcdef ;;
   cp) cat "$d/troupe.tar" ;;
   rm) echo "$2" ;;
+  manifest) [ -n "$DOCKER_AUTH_CONFIG" ] && exit 0
+            [ -f "$d/private" ] && { [ -z "$DOCKER_CONFIG" ] || [ -n "$(ls -A "$DOCKER_CONFIG")" ]; exit; }; exit 0 ;;
 esac
 `
 
@@ -423,5 +425,27 @@ func TestVersionsCompareNumerically(t *testing.T) {
 	}
 	if Major("2.0.1") != "2" || Major("x") != "" {
 		t.Error("Major")
+	}
+}
+
+// A public kit reads without a login: Docker is asked with an empty configuration, never with
+// the operator's own login.
+func TestPublicReadsWithoutALogin(t *testing.T) {
+	f := newFake(t)
+	d := Docker{Log: &f.log}
+	if !d.Public(context.Background(), reference) {
+		t.Fatalf("public kit read as private:\n%s", f.log.String())
+	}
+	f.set("private", "")
+	if d.Public(context.Background(), reference) {
+		t.Fatal("private kit read as public")
+	}
+	// Credentials in the environment never reach the check.
+	t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":{"ghcr.io":{"auth":"x"}}}`)
+	if d.Public(context.Background(), reference) {
+		t.Fatal("DOCKER_AUTH_CONFIG made a private kit public")
+	}
+	if calls, _ := os.ReadFile(filepath.Join(f.bin, "calls")); !strings.Contains(string(calls), "manifest inspect "+reference) {
+		t.Fatalf("calls %s", calls)
 	}
 }

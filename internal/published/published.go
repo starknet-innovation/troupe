@@ -119,6 +119,30 @@ func (d Docker) Resolve(ctx context.Context, repository string) (Image, error) {
 	return img, nil
 }
 
+// Public reports whether anyone can read the kit at reference, without a login: Docker reads its
+// manifest with an empty configuration, so no stored credential is used. sbx and its daemon
+// read a public kit without one too (measured with sbx 0.50.1), so no token is needed.
+func (d Docker) Public(ctx context.Context, reference string) bool {
+	empty, err := os.MkdirTemp("", "troupe-docker-")
+	if err != nil {
+		return false
+	}
+	defer os.RemoveAll(empty)
+	call, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(call, "docker", "manifest", "inspect", reference)
+	// DOCKER_AUTH_CONFIG carries credentials whatever the configuration folder holds.
+	for _, v := range os.Environ() {
+		if !strings.HasPrefix(v, "DOCKER_CONFIG=") && !strings.HasPrefix(v, "DOCKER_AUTH_CONFIG=") {
+			cmd.Env = append(cmd.Env, v)
+		}
+	}
+	cmd.Env = append(cmd.Env, "DOCKER_CONFIG="+empty)
+	fmt.Fprintf(d.Log, "$ DOCKER_CONFIG=(empty) docker manifest inspect %s\n", reference)
+	cmd.Stderr = d.Log
+	return cmd.Run() == nil
+}
+
 // Extract keeps the pinned kit's troupe files in data/kits/TYPE-VERSION once: services.json,
 // defaults.json and the rest at the top, its seeds under files/home/.hermes, and troupe's own
 // record (kit.json). A folder already there is reused.

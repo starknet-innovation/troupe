@@ -100,7 +100,7 @@ func upgradeCommand(e env, args []string) int {
 	repository := current.Reference[:strings.LastIndex(current.Reference, ":")]
 	host, _, _ := strings.Cut(repository, "/")
 	a.Printer.Print("kit", progress.Started, "Finding the latest "+repository+" kit")
-	img, err := resolve(e, docker, runner, repository, host)
+	img, err := resolve(e, a.Printer, docker, runner, repository, host)
 	if err != nil {
 		return a.Report(agent.Failure{Step: "kit", Class: err.Error()})
 	}
