@@ -194,6 +194,25 @@ func TestInstallSetsTheNetworkPolicyOnce(t *testing.T) {
 	}
 }
 
+// Over an existing troupe the installer says what it replaced; "Next: troupe create" is for a
+// first install only (troupe update runs this installer).
+func TestReplacingATroupeSaysWhatItReplaced(t *testing.T) {
+	i := newInstaller(t)
+	os.MkdirAll(filepath.Join(i.home, ".local/bin"), 0o755)
+	i.write(filepath.Join(i.home, ".local/bin/troupe"), "#!/bin/sh\necho 'troupe 0.9.0'\n", 0o755)
+	code, out := i.run()
+	if code != 0 || !strings.Contains(out, "done. troupe 1.0.0 replaced troupe 0.9.0") || strings.Contains(out, "Next: troupe create") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	// One that cannot say its version (here, not executable) is still named.
+	i = newInstaller(t)
+	os.MkdirAll(filepath.Join(i.home, ".local/bin"), 0o755)
+	i.write(filepath.Join(i.home, ".local/bin/troupe"), "the old troupe\n", 0o644)
+	if code, out := i.run(); code != 0 || !strings.Contains(out, "done. troupe 1.0.0 replaced the previous troupe") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+}
+
 func TestInstallShowsWhatIsLeftToDo(t *testing.T) {
 	i := newInstaller(t)
 	if code, out := i.run("FAKE_DOCTOR=warn"); code != 0 || !strings.Contains(out, "sbx: ACTION. sbx was not found.") {

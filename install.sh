@@ -28,7 +28,7 @@ main() {
   esac
 
   work=$(mktemp -d)
-  replaced="" previous="" finished=""
+  replaced="" previous="" finished="" was=""
   trap cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM HUP
@@ -50,6 +50,7 @@ main() {
 
   mkdir -p "$bin_dir"
   if [ -e "$target" ]; then
+    was=$("$target" version 2>/dev/null) || was="" # an update says what it replaced
     previous="$work/previous"
     cp -p "$target" "$previous"
   fi
@@ -142,7 +143,11 @@ main() {
     *":$bin_dir:"*) ;;
     *) say "add $bin_dir to your PATH (for example in ~/.profile) to run troupe by name" ;;
   esac
-  say "done. Next: troupe create coder --name NAME"
+  if [ -z "$previous" ]; then
+    say "done. Next: troupe create coder --name NAME"
+  else
+    say "done. $("$target" version) replaced ${was:-the previous troupe}"
+  fi
 }
 
 say() { printf 'troupe install: %s\n' "$*"; }
