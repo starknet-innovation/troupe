@@ -92,7 +92,8 @@ sha256sum troupe-linux-amd64 > SHA256SUMS
 
 then a GitHub release for the tag with both files, which `install.sh` downloads from
 `releases/latest/download`. A binary built at a clean tag says `troupe X.Y.Z`; one built
-anywhere else says its commit.
+anywhere else says its commit. Build it from a plain clone at the tag (`git clone --branch vX.Y.Z`),
+not a `git worktree`: there Go records no version, and the binary says `troupe unknown`.
 
 `troupe units render NAME` (hidden) prints a unit with this host's values; the installer and
 a host's own upgrade tools can use it.
