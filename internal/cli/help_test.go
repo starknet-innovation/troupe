@@ -29,9 +29,9 @@ func TestHelpListsOnlyUserCommands(t *testing.T) {
 	for _, m := range listed {
 		names = append(names, m[1])
 	}
-	want := "chat config create delete doctor guard reset resize restart secret start stop upgrade version"
+	want := "chat config create delete doctor guard reset resize restart secret start stop update upgrade version"
 	if devBuild {
-		want = "agents budget chat config create delete doctor guard harvest reset resize restart secret start stop storage update upgrade version"
+		want = "agents budget chat config create delete doctor guard harvest reseed reset resize restart secret start stop storage update upgrade version"
 	}
 	if got := strings.Join(names, " "); got != want {
 		t.Fatalf("listed: %s", got)
@@ -79,7 +79,7 @@ func TestEveryHelpFitsAndDescribesItsFlags(t *testing.T) {
 	forms := [][]string{{}, {"create", "coder"}, {"create", "hermes"}, {"secret", "set"}, {"secret", "check"},
 		{"config", "get"}, {"guard", "probe"}, {"guard", "check"}, {"units", "render"}, {"gateway", "stop"}}
 	if devBuild {
-		forms = append(forms, []string{"agents", "list"}, []string{"agents", "show"}, []string{"update", "skills"}, []string{"budget", "check"},
+		forms = append(forms, []string{"agents", "list"}, []string{"agents", "show"}, []string{"reseed", "skills"}, []string{"budget", "check"},
 			[]string{"storage", "check"})
 	}
 	for _, c := range commandList {

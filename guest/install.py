@@ -1,4 +1,4 @@
-"""update install: the seed writer of troupe upgrade's seed step and the dev build's troupe update."""
+"""update install: the seed writer of troupe upgrade's seed step and the dev build's troupe reseed."""
 import base64
 import os
 from pathlib import Path

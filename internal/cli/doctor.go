@@ -42,7 +42,8 @@ func doctorCommand(e env, args []string) int {
 	}
 	printer := progress.New("This machine", hostLocation(e))
 	printer.Out, printer.Err = e.out, e.err
-	lines := machineCheck()
+	// The release check is the doctor's own, never create's: a network call create could not show.
+	lines := append(machineCheck(), releaseLine(e.ctx))
 	printLines(printer, lines, true)
 	if doctor.Failed(lines) {
 		return 1

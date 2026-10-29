@@ -1,6 +1,6 @@
 """update read|state|signal|install
 
-The guest half of troupe restart, troupe upgrade's seed step and the dev build's troupe update
+The guest half of troupe restart, troupe upgrade's seed step and the dev build's troupe reseed
 (install.py writes the seeds). The request is request.json beside this file (it can carry whole files, so
 it never travels on the command line); the answer is one JSON line. Paths are relative to
 ~/.hermes; nothing outside it is read or written.

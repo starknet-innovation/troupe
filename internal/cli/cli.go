@@ -102,6 +102,7 @@ var commandList = sorted(append([]entry{
 	{"start", "start an agent and keep it starting at boot", startCommand, false},
 	{"stop", "let an agent finish its work, then stop it and keep it stopped", stopCommand, false},
 	{"units", "render the systemd unit templates (the installer installs them)", units, true},
+	{"update", "update troupe to its latest release", updateCommand, false},
 	{"upgrade", "move an agent onto the newest version of its kit, keeping everything it has", upgradeCommand, false},
 	{"version", "print troupe's version", version, false},
 }, devEntries...))

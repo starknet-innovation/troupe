@@ -155,7 +155,7 @@ func (h *harvestHost) migrate(stamp, id string) {
 	write(h.t, filepath.Join(h.dir, "state/ada/completed", stamp, "cutover.json"), `{"new_id": "`+id+`"}`, 0o644)
 }
 
-// update files troupe update's receipt: the plan's after hashes and the bytes it wrote, applied
+// update files troupe reseed's receipt: the plan's after hashes and the bytes it wrote, applied
 // when the install passed, and the agent's edited copies it replaced. A nil status is an install that never
 // answered; a nil file is a deletion.
 func (h *harvestHost) update(stamp string, files map[string]*string, status any, overwritten map[string]string) {
@@ -355,7 +355,7 @@ func TestHarvestCollectsAnAgentChangeWithItsExactBasePrivately(t *testing.T) {
 		t.Fatalf("scratch line %q", lines[1])
 	}
 	// Blending is the user's; troupe names the command that then replaces the agent's skills.
-	if !strings.HasPrefix(lines[2], "next: blend the lessons") || !strings.HasSuffix(lines[2], "then run troupe update skills ada") {
+	if !strings.HasPrefix(lines[2], "next: blend the lessons") || !strings.HasSuffix(lines[2], "then run troupe reseed skills ada") {
 		t.Fatalf("next step %q", lines[2])
 	}
 	folder := filepath.Join("files", skill)

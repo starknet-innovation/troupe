@@ -12,7 +12,7 @@ func TestAReleaseHasNoKitsRootOrMaintainerCommands(t *testing.T) {
 	if code, _, errs := run("--kits", t.TempDir(), "--help"); code != 2 || !strings.Contains(errs, "-kits") {
 		t.Fatalf("--kits: exit %d: %s", code, errs)
 	}
-	for _, name := range []string{"agents", "harvest", "storage", "update", "recreate", "migrate", "dev"} {
+	for _, name := range []string{"agents", "harvest", "storage", "reseed", "recreate", "migrate", "dev"} {
 		if code, _, errs := run(name, "--help"); code != 2 || !strings.Contains(errs, "unknown command") {
 			t.Errorf("%s: exit %d: %s", name, code, errs)
 		}

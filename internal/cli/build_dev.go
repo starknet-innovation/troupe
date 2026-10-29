@@ -19,7 +19,7 @@ var devEntries = []entry{
 	{"budget", "check this machine has room for a new sandbox", budgetCommand, false},
 	{"harvest", "collect an agent's own skill edits before they are replaced (read only)", harvestCommand, false},
 	{"storage", "check a sandbox's disks and mounts against its declared storage", storageCommand, false},
-	{"update", "make an agent's skills, scripts or SOUL.md match the seeds", updateCommand, false},
+	{"reseed", "make an agent's skills, scripts or SOUL.md match the seeds", reseedCommand, false},
 }
 
 const devBuild = true

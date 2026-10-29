@@ -50,7 +50,7 @@ One source tree, two builds:
 |---|---|
 | `troupe recreate AGENT` | `troupe reset AGENT` in both builds; it works for local agents too, `--check` proves its preflight, `--yes` answers its confirmation for scripts (`--force` still only confirms the budget). |
 | `troupe migrate AGENT` | `troupe resize AGENT` with no sizes: the same move into a fresh VM, keeping state, for local agents too (whose sizes are their own folder's files). |
-| `troupe update`, `troupe agents`, `troupe storage check` | unchanged, in the dev build only |
+| `troupe reseed`, `troupe agents`, `troupe storage check` | unchanged, in the dev build only |
 | `troupe-dev harvest AGENT` | `troupe harvest AGENT`, in the dev build only; troupe-dev is gone |
 | `--kits`, `TROUPE_KITS`, `troupe.json`, the `kits` setting | `--kits` and the `kits` setting, in the dev build only |
 | `troupe units` | hidden: the installer installs the units with `troupe units render` |
@@ -206,7 +206,7 @@ Neither Docker nor sbx lists a registry's tags, so without a moving tag troupe w
    - `delete`, with its typed confirmation, the full local cleanup and the list of provider-side steps;
    - `chat`, and the self-test that ends `create`.
 3. **Development commands only in the dev build** (done 2026-10-14, [above](#the-release-is-end-user-only-development-commands-live-in-the-dev-build)):
-   - `update`, `agents`, `storage check` and `harvest` (troupe-dev folded in) compile only with `-tags dev`, with the kits root;
+   - `reseed` (then named `update`), `agents`, `storage check` and `harvest` (troupe-dev folded in) compile only with `-tags dev`, with the kits root;
    - `recreate` and `migrate` are gone: `reset` and `resize` do their jobs, for local agents too;
    - the hermes-agents scripts, docs and skills point at the new names and require a dev build.
 4. **troupe doctor and the installer** (done 2026-10-14, publishing deferred):

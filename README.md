@@ -35,6 +35,12 @@ fails the doctor, or any failure or interruption, leaves the troupe binary that 
 units already written stay, and a later run finishes them. A downloaded release is checked against the release's `SHA256SUMS`, which
 catches a corrupted download; it comes from the same place as the binary.
 
+To update troupe later, run `troupe update`: it runs the latest release's own installer, as above, and
+does nothing when troupe is already the latest. It asks for sudo first. Running agents keep
+running; a changed gateway unit applies from each agent's next restart. `troupe doctor` says
+when a newer release is out. `troupe update` replaces the installed troupe (`~/.local/bin/troupe`),
+so it refuses when run from anywhere else.
+
 `troupe doctor` checks this machine, one line per requirement; `create` runs the same checks
 first and refuses on any failure or requested action (a note, such as an older systemd, never
 stops it):
@@ -51,6 +57,7 @@ stops it):
 | Software | sbx signed in to Docker (read from sbx's sign-in store, without running sbx) | asks for your action (`sbx login`) |
 | Software | sudo | asks for your action |
 | Software | troupe's systemd units installed and current, running the sandbox daemon | asks for your action (run the installer again) |
+| Software | troupe itself, against its latest release (a build from a checkout is not checked) | noted when a newer one is out (`troupe update`) |
 
 ## Creating an agent from a published kit
 

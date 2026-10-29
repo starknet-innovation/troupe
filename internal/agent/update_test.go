@@ -445,7 +445,7 @@ func TestUpdateInstallsWhatARecreateComposes(t *testing.T) {
 	}
 }
 
-// troupe update reads the kits and its own receipts: git is not needed on the host.
+// troupe reseed reads the kits and its own receipts: git is not needed on the host.
 func TestUpdateRunsWithoutGit(t *testing.T) {
 	h := newUpdateHost(t)
 	h.installAll()

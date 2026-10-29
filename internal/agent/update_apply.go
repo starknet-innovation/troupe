@@ -66,7 +66,7 @@ func (a *Agent) PlanUpdate(ctx context.Context, seeds Seeds, kind Kind) (*Plan, 
 	installed, err := ReadInstalled(filepath.Join(a.stateRoot(), a.Name, "reseed", "completed"), receiptsDir(a.Name))
 	var unknown InstalledError
 	if errors.As(err, &unknown) {
-		return nil, Failure{"update", string(unknown)}
+		return nil, Failure{"reseed", string(unknown)}
 	}
 	if err != nil {
 		return nil, err
@@ -90,23 +90,23 @@ func (a *Agent) PlanUpdate(ctx context.Context, seeds Seeds, kind Kind) (*Plan, 
 		if errors.Is(err, ErrInterrupted) {
 			return nil, err
 		}
-		return nil, Failure{"update", "live_files_unreadable"}
+		return nil, Failure{"reseed", "live_files_unreadable"}
 	}
 	live := map[string][]byte{}
 	for rel, entry := range answer.Files {
 		// The answer comes from inside the agent's VM: trust no path in it.
 		if !insideItems(rel, items) {
-			return nil, Failure{"update", "live_path_not_allowed " + strconv.Quote(rel)}
+			return nil, Failure{"reseed", "live_path_not_allowed " + strconv.Quote(rel)}
 		}
 		if entry.Error != nil {
-			return nil, Failure{"update", fmt.Sprintf("live_%s %s", Plain(*entry.Error), strconv.QuoteToASCII(rel))}
+			return nil, Failure{"reseed", fmt.Sprintf("live_%s %s", Plain(*entry.Error), strconv.QuoteToASCII(rel))}
 		}
 		if entry.B64 == nil {
-			return nil, Failure{"update", "live_files_unreadable"}
+			return nil, Failure{"reseed", "live_files_unreadable"}
 		}
 		data, err := base64.StdEncoding.DecodeString(*entry.B64)
 		if err != nil {
-			return nil, Failure{"update", "live_files_unreadable"}
+			return nil, Failure{"reseed", "live_files_unreadable"}
 		}
 		live[rel] = data
 	}
@@ -230,13 +230,13 @@ func (a *Agent) PrintPlan(p *Plan) {
 		if c.Overwrites {
 			line += fmt.Sprintf(" (overwrites %s's edits; the agent's copy is saved)", a.Printer.Agent)
 		}
-		a.Printer.Print("update", "", line)
+		a.Printer.Print("reseed", "", line)
 	}
 	if p.Restart {
-		a.Printer.Print("update", "", "A graceful restart follows (the skill list or a skill's description changes)")
+		a.Printer.Print("reseed", "", "A graceful restart follows (the skill list or a skill's description changes)")
 	}
 	for _, note := range p.Notes {
-		a.Printer.Print("update", "", note)
+		a.Printer.Print("reseed", "", note)
 	}
 }
 
@@ -268,7 +268,7 @@ func (a *Agent) Update(ctx context.Context, seeds Seeds, kind Kind, opts UpdateO
 		if kind == Soul {
 			what = fmt.Sprintf("%s's SOUL.md already matches", a.Printer.Agent)
 		}
-		a.Printer.Print("update", progress.OK, what+" the seeds")
+		a.Printer.Print("reseed", progress.OK, what+" the seeds")
 		return nil
 	}
 	a.PrintPlan(plan)
@@ -277,29 +277,29 @@ func (a *Agent) Update(ctx context.Context, seeds Seeds, kind Kind, opts UpdateO
 		if err := writeJSON(record, map[string]string{"fingerprint": plan.Fingerprint()}); err != nil {
 			return err
 		}
-		a.Printer.Print("update", progress.OK, "Dry run, nothing changed")
-		a.Printer.Print("update", progress.Action, fmt.Sprintf("To apply exactly this, run: troupe update %s %s --yes", kind, a.Name))
+		a.Printer.Print("reseed", progress.OK, "Dry run, nothing changed")
+		a.Printer.Print("reseed", progress.Action, fmt.Sprintf("To apply exactly this, run: troupe reseed %s %s --yes", kind, a.Name))
 		return nil
 	}
 	if opts.Yes {
 		var last map[string]string
 		data, err := os.ReadFile(record)
 		if err != nil || json.Unmarshal(data, &last) != nil {
-			return Failure{"update", "no_dry_run; run with --dry-run first, then --yes"}
+			return Failure{"reseed", "no_dry_run; run with --dry-run first, then --yes"}
 		}
 		if last["fingerprint"] != plan.Fingerprint() {
-			return Failure{"update", "changed_since_dry_run; nothing changed, run --dry-run again"}
+			return Failure{"reseed", "changed_since_dry_run; nothing changed, run --dry-run again"}
 		}
 	} else {
 		if opts.Confirm == nil {
-			return Failure{"update", "no_terminal_to_confirm; run with --dry-run, then --yes"}
+			return Failure{"reseed", "no_terminal_to_confirm; run with --dry-run, then --yes"}
 		}
 		noun := "changes"
 		if len(plan.Changes) == 1 {
 			noun = "change"
 		}
 		if !opts.Confirm(fmt.Sprintf("Apply these %d %s to %s? [y/N] ", len(plan.Changes), noun, a.Printer.Agent)) {
-			a.Printer.Print("update", progress.Skipped, "Nothing changed")
+			a.Printer.Print("reseed", progress.Skipped, "Nothing changed")
 			return nil
 		}
 	}
@@ -326,7 +326,7 @@ func (a *Agent) applyPlan(ctx context.Context, plan *Plan) error {
 		target := filepath.Join(kept, filepath.FromSlash(rel))
 		// Belt and braces: never write outside the receipt, whatever the path says.
 		if inside, err := filepath.Rel(kept, target); err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
-			return Failure{"update", "live_path_not_allowed " + strconv.Quote(rel)}
+			return Failure{"reseed", "live_path_not_allowed " + strconv.Quote(rel)}
 		}
 		if err := writePrivate(target, data); err != nil {
 			return err
@@ -424,7 +424,7 @@ func TerminalConfirm(in io.Reader, out io.Writer) func(string) bool {
 
 // ApplySeeds makes the agent's seeded skills and scripts match the new kit version without
 // asking: the last step of an upgrade, after the move restored the agent's own home. The seeds
-// win, as with troupe update: the agent's lessons are expected in the new version already
+// win, as with troupe reseed: the agent's lessons are expected in the new version already
 // (harvested into the kit before it was published), and every file of the agent's own it
 // replaces is kept in that change's receipt. SOUL.md is the agent's own folder's, not the
 // kit's, so an upgrade leaves it as it is.
@@ -450,7 +450,7 @@ func (a *Agent) ApplySeeds(ctx context.Context, seeds Seeds) error {
 		changed += len(plan.Changes)
 	}
 	if changed == 0 {
-		a.Printer.Print("update", progress.OK, a.Printer.Agent+"'s skills and scripts already match the new kit")
+		a.Printer.Print("reseed", progress.OK, a.Printer.Agent+"'s skills and scripts already match the new kit")
 	}
 	return nil
 }

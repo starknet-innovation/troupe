@@ -190,7 +190,7 @@ func (a *Agent) confirm(ctx context.Context, receipt string, wait time.Duration,
 		}
 		if time.Now().After(deadline) {
 			if a.active() && a.gatewayStill(ctx, oldPID) {
-				a.Printer.Print(step, progress.Waiting, "Active turns are still finishing before the restart. The next troupe update or restart confirms it")
+				a.Printer.Print(step, progress.Waiting, "Active turns are still finishing before the restart. The next troupe reseed or restart confirms it")
 				return finish("pending", "pending", 3, ErrPending)
 			}
 			return finish("failed", "verify", 1, Failure{step, "gateway_did_not_return; check " + a.Unit()})

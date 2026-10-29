@@ -28,7 +28,7 @@ import (
 )
 
 var harvestHelp = help.Render(help.Command{
-	Summary: "Collect an agent's own skill edits before a reset, update or upgrade replaces them.",
+	Summary: "Collect an agent's own skill edits before a reset, reseed or upgrade replaces them.",
 	Usage:   []string{"harvest AGENT"},
 	Args:    []help.Arg{{Name: "AGENT", Desc: "Any agent troupe knows, of the kits root or a published kit."}},
 	Notes: []string{
@@ -78,7 +78,7 @@ func nextStep(reg registry.Registry, name, baseKit string) string {
 	if folder, err := reg.Folder(name); err == nil && filepath.Dir(folder) == filepath.Join(reg.Data, "agents") {
 		return "next: blend the lessons worth keeping into the kit's skills (by hand or with an LLM), publish a new version of the kit, then run troupe upgrade " + name
 	}
-	return "next: blend the lessons worth keeping into the skills under " + filepath.Join(baseKit, "files/home/.hermes") + " (by hand or with an LLM), then run troupe update skills " + name
+	return "next: blend the lessons worth keeping into the skills under " + filepath.Join(baseKit, "files/home/.hermes") + " (by hand or with an LLM), then run troupe reseed skills " + name
 }
 
 func cleanSkillPath(rel string) bool {
