@@ -341,7 +341,7 @@ func TestResizeRewritesOnlyTheSizes(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(filepath.Join(folder, "sbxenv.yaml"))
-	restore, err := Resize(folder, 2, 8, 60)
+	restore, err := Resize(folder, 2, 8, 60, 30)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,12 +350,12 @@ func TestResizeRewritesOnlyTheSizes(t *testing.T) {
 	if string(after) != want {
 		t.Fatalf("sbxenv.yaml:\n%s", after)
 	}
-	if storage, _ := os.ReadFile(filepath.Join(folder, "storage.env")); string(storage) != "DOCKER_SANDBOXES_ROOT_SIZE=60g\nDOCKER_SANDBOXES_DOCKER_SIZE=10g\n" {
+	if storage, _ := os.ReadFile(filepath.Join(folder, "storage.env")); string(storage) != "DOCKER_SANDBOXES_ROOT_SIZE=60g\nDOCKER_SANDBOXES_DOCKER_SIZE=30g\n" {
 		t.Fatalf("storage.env %q", storage)
 	}
 	// A file not as Write wrote it is refused, and nothing changes.
 	os.WriteFile(filepath.Join(folder, "storage.env"), []byte("DOCKER_SANDBOXES_ROOT_SIZE=60g\nDOCKER_SANDBOXES_ROOT_SIZE=70g\n"), 0o600)
-	if _, err := Resize(folder, 3, 9, 80); err == nil {
+	if _, err := Resize(folder, 3, 9, 80, 10); err == nil {
 		t.Fatal("rewrote an unexpected file")
 	}
 	if again, _ := os.ReadFile(filepath.Join(folder, "sbxenv.yaml")); string(again) != want {

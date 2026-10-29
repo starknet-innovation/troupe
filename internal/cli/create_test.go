@@ -26,7 +26,8 @@ func TestCreateArguments(t *testing.T) {
 		"a name too long":      {[]string{"create", "hermes", "--name", strings.Repeat("a", 36)}, "longer than 35 characters"},
 		"a malformed type":     {[]string{"create", "../hermes", "--name", "jane"}, "TYPE must be coder or hermes"},
 		"an unknown type":      {[]string{"create", "other", "--name", "jane"}, "TYPE must be coder or hermes"},
-		"a negative size":      {[]string{"create", "hermes", "--name", "jane", "--memory", "-1"}, "positive whole numbers"},
+		"a negative size":      {[]string{"create", "hermes", "--name", "jane", "--memory", "-1"}, "a whole number or max"},
+		"a size not a number":  {[]string{"create", "hermes", "--name", "jane", "--docker", "lots"}, "a whole number or max"},
 		"a Lab's name":         {[]string{"create", "hermes", "--name", "hermes-lab"}, "a Lab's"},
 		"a reserved name":      {[]string{"create", "hermes", "--name", "collector"}, "troupe reserves"},
 	} {

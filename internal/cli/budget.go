@@ -42,6 +42,18 @@ func sandboxes(e env, runner sbx.Runner) ([]budget.Sandbox, error) {
 	return found, nil
 }
 
+// machineRoom is budget.Max for name, read only when a size flag says max.
+func machineRoom(e env, runner sbx.Runner, f sizeFlags, name string) (budget.Room, error) {
+	if !f.anyMax() {
+		return budget.Room{}, nil
+	}
+	listed, err := sandboxes(e, runner)
+	if err != nil {
+		return budget.Room{}, err
+	}
+	return budget.Max(budgetMeasure(budgetPaths()), listed, name), nil
+}
+
 // checkBudget refuses what cannot fit this machine at all, and over budget asks the operator to
 // confirm (forcedBudget confirms; reportBudget, for a check that changes nothing, refuses with the
 // figures instead of asking). Figures it cannot read are noted, not refused.

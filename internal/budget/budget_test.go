@@ -169,3 +169,47 @@ func TestCountCountsEachVM(t *testing.T) {
 		t.Fatalf("one vCPU more: %+v", r)
 	}
 }
+
+// Max is the largest agent Check passes without asking. On host(): 27 GiB for agents, less the
+// VM's own 1.25 GiB, is 25 GiB; all 16 cores; 800 GiB of disk.
+func TestMaxIsTheLargestAgentCheckPasses(t *testing.T) {
+	room := Max(host(), nil, "jane")
+	if room != (Room{CPUs: 16, MemoryGiB: 25, DiskGiB: 800}) {
+		t.Fatalf("empty machine: %+v", room)
+	}
+	r := Check(host(), nil, Want{Name: "jane", CPUs: room.CPUs, MemoryGiB: room.MemoryGiB, DiskGrowthGiB: room.DiskGiB})
+	if r.Impossible != "" || len(r.Over) != 0 {
+		t.Fatalf("max did not pass: %+v", r)
+	}
+	if r := Check(host(), nil, Want{Name: "jane", CPUs: room.CPUs, MemoryGiB: room.MemoryGiB + 1, DiskGrowthGiB: room.DiskGiB + 1}); len(r.Over) == 0 && r.Impossible == "" {
+		t.Fatalf("one more GiB still passed: %+v", r)
+	}
+
+	// Another running VM (6 CPUs, 10 GiB) takes its memory and overhead; CPUs stay all 16
+	// (24 vCPUs less 6 is 18). A stopped one, and the agent itself, take nothing.
+	others := []Sandbox{other, {Name: "jane", CPUs: 8, MemoryMiB: 8192, Running: true}, {Name: "idle", CPUs: 8, MemoryMiB: 8192}}
+	if room := Max(host(), others, "jane"); room != (Room{CPUs: 16, MemoryGiB: 14, DiskGiB: 800}) {
+		t.Fatalf("other VMs: %+v", room)
+	}
+	// Past the overcommit, CPUs are what is left of it.
+	busy := []Sandbox{{Name: "a", CPUs: 16, MemoryMiB: 1024, Running: true}}
+	if room := Max(host(), busy, "jane"); room.CPUs != 8 {
+		t.Fatalf("overcommit: %+v", room)
+	}
+	// Disk growth already promised to existing VMs is not room.
+	h := host()
+	h.DiskGrowth = 300 * gib
+	if room := Max(h, nil, "jane"); room.DiskGiB != 500 {
+		t.Fatalf("disk growth: %+v", room)
+	}
+	// A full machine has no room, never a negative one.
+	full := []Sandbox{{Name: "big", CPUs: 40, MemoryMiB: 40 * 1024, Running: true}}
+	h.DiskFree = 100 * gib
+	if room := Max(h, full, "jane"); room != (Room{}) {
+		t.Fatalf("full machine: %+v", room)
+	}
+	// What could not be read is -1, never a guess.
+	if room := Max(Host{}, nil, "jane"); room != (Room{CPUs: -1, MemoryGiB: -1, DiskGiB: -1}) {
+		t.Fatalf("unread: %+v", room)
+	}
+}

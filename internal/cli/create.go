@@ -32,9 +32,9 @@ import (
 
 // createFlags are create's options for a published agent.
 type createFlags struct {
-	name, soul, avatar          string
-	cpus, memoryGiB, storageGiB int
-	force                       bool
+	name, soul, avatar string
+	sizes              sizeFlags
+	force              bool
 }
 
 // createPublished creates a new agent from the latest published TYPE kit: it pins that version,
@@ -97,7 +97,7 @@ func createPublished(e env, typ string, f createFlags) int {
 		if agent.Created(name) {
 			return report("create", fmt.Errorf("%s already exists", name))
 		}
-		if f.soul != "" || f.avatar != "" || f.cpus != 0 || f.memoryGiB != 0 || f.storageGiB != 0 {
+		if f.soul != "" || f.avatar != "" || f.sizes.given() {
 			return report("create", errors.New("a resumed creation keeps the sizes, SOUL and picture it began with; run it again without them"))
 		}
 		printer.Print("create", progress.Info, "Resuming the creation of "+name)
@@ -183,14 +183,18 @@ func createPublished(e env, typ string, f createFlags) int {
 	} else if t, _ := published.TypeNamed(typ); t.Differs(sizes, asks) {
 		printer.Print("kit", progress.Info, fmt.Sprintf("%s %s's sizes or questions differ from this troupe's help; troupe follows the kit", typ, img.Version))
 	}
-	if f.cpus > 0 {
-		sizes.CPUs = f.cpus
+	if f.sizes.docker.given() && sizes.DockerGiB == 0 {
+		return report("kit", fmt.Errorf("%s %s has no Docker disk; leave out --docker", typ, img.Version))
 	}
-	if f.memoryGiB > 0 {
-		sizes.MemoryGiB = f.memoryGiB
+	room, err := machineRoom(e, runner, f.sizes, name)
+	if err != nil {
+		return report("budget", err)
 	}
-	if f.storageGiB > 0 {
-		sizes.RootGiB = f.storageGiB
+	if sizes, err = f.sizes.resolve(sizes, room, false); err != nil {
+		return report("budget", err)
+	}
+	if f.sizes.given() {
+		printer.Print("sizes", progress.Info, f.sizes.describe(sizes))
 	}
 	// The budget before any key is asked: an agent this machine cannot hold stops here.
 	if err := checkBudget(e, runner, printer, budget.Want{Name: name, CPUs: sizes.CPUs, MemoryGiB: sizes.MemoryGiB,

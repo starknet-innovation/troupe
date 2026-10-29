@@ -513,9 +513,10 @@ func StoreToken(ctx context.Context, d Docker, runner sbx.Runner, host, user str
 }
 
 // Resize rewrites a published agent's sizes in the files troupe wrote for it: cpus and memory
-// in its sbxenv.yaml, the root disk in its storage.env. Each line must appear exactly once, as
-// Write writes it; anything else is refused and nothing changes. restore puts both files back.
-func Resize(folder string, cpus, memoryGiB, rootGiB int) (restore func(), err error) {
+// in its sbxenv.yaml, the disks in its storage.env (the Docker disk only when dockerGiB is above
+// zero: an agent without one keeps none). Each line must appear exactly once, as Write writes
+// it; anything else is refused and nothing changes. restore puts both files back.
+func Resize(folder string, cpus, memoryGiB, rootGiB, dockerGiB int) (restore func(), err error) {
 	edits := []struct {
 		file    string
 		pattern *regexp.Regexp
@@ -524,6 +525,13 @@ func Resize(folder string, cpus, memoryGiB, rootGiB int) (restore func(), err er
 		{"sbxenv.yaml", regexp.MustCompile(`(?m)^  cpus: [1-9][0-9]*$`), fmt.Sprintf("  cpus: %d", cpus)},
 		{"sbxenv.yaml", regexp.MustCompile(`(?m)^  memory: [1-9][0-9]*g$`), fmt.Sprintf("  memory: %dg", memoryGiB)},
 		{"storage.env", regexp.MustCompile(`(?m)^DOCKER_SANDBOXES_ROOT_SIZE=[1-9][0-9]*g$`), fmt.Sprintf("DOCKER_SANDBOXES_ROOT_SIZE=%dg", rootGiB)},
+	}
+	if dockerGiB > 0 {
+		edits = append(edits, struct {
+			file    string
+			pattern *regexp.Regexp
+			line    string
+		}{"storage.env", regexp.MustCompile(`(?m)^DOCKER_SANDBOXES_DOCKER_SIZE=[1-9][0-9]*g$`), fmt.Sprintf("DOCKER_SANDBOXES_DOCKER_SIZE=%dg", dockerGiB)})
 	}
 	texts, originals := map[string]string{}, map[string]string{}
 	for _, e := range edits {

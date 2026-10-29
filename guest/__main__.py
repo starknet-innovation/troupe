@@ -16,7 +16,7 @@ import sys
 
 # Job name -> module in this folder. A job of troupe's dev build is its module's own name, and
 # runs only where that module was shipped; HELPERS are modules that are never jobs.
-JOBS = {'align': 'align', 'backup': 'backup', 'drain': 'drain', 'fresh': 'fresh',
+JOBS = {'align': 'align', 'backup': 'backup', 'disk': 'disk', 'drain': 'drain', 'fresh': 'fresh',
         'gateway-stopped': 'stopped', 'kit': 'kit', 'ready': 'ready',
         'restore': 'restore', 'selftest': 'selftest', 'slack': 'slack', 'stop-gateway': 'stop',
         'storage': 'storage', 'update': 'update'}

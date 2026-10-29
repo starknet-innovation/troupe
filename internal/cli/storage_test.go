@@ -108,7 +108,7 @@ func TestStorageCheckPasses(t *testing.T) {
 		}
 		names = append(names, header.Name)
 	}
-	if strings.Join(names, " ") != "__main__.py align.py archive.py backup.py drain.py fresh.py harvest.py install.py kit.py ready.py restore.py selftest.py slack.py stop.py stopped.py storage.py update.py" {
+	if strings.Join(names, " ") != "__main__.py align.py archive.py backup.py disk.py drain.py fresh.py harvest.py install.py kit.py ready.py restore.py selftest.py slack.py stop.py stopped.py storage.py update.py" {
 		t.Fatalf("installed %v", names)
 	}
 }

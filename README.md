@@ -70,7 +70,13 @@ asks for each service's key in the kit's order, after the kit's line on what the
 where to get it (hidden; Enter skips an optional one), and stores
 it as strongly as the machine allows ([key protection](#key-protection)), writes the agent's environment to `~/.local/share/troupe/agents/NAME/`
 (`sbxenv.yaml`, its mixin, `storage.env`, `source.json`), then runs the same create as below.
-`--cpu`, `--memory` and `--storage` change the kit's default sizes; `--soul FILE` replaces its
+`--cpu`, `--memory`, `--storage` (the root disk) and `--docker` (the Docker disk, for images and
+build cache) change the kit's default sizes. Each takes a number or `max`: all this machine can
+give, after the reserves the budget keeps (2 GiB of memory and the sandbox daemon's for the host,
+1.25 GiB for the VM's own overhead, 10% of the disk free) and every other running sandbox. On a
+host for one agent, `--cpu max --memory max --storage max --docker max` gives it everything; with
+both disks at `max`, the free disk is split in the kit's ratio of root to Docker disk. A `max` that
+leaves a disk under 10 GiB, or less than 1 CPU or 1 GiB, is refused. `--soul FILE` replaces its
 default SOUL. Every `create` ends with a self-test: one message through the agent's own Hermes
 and model provider, judged on transport only (the configured model completed a turn), with the
 reply shown. A failure names the likely cause (the key, the network, the provider); the agent
@@ -127,7 +133,7 @@ Day to day:
 | `troupe reset NAME [--check]` | Factory reset after you confirm: the agent starts fresh from the kit version it is pinned to (the one it was created from, or upgraded to), keeping itself and its keys. `--check` only proves a reset would pass its preflight. The old VM's image is removed once the new VM runs. |
 | `troupe delete NAME` | Removes the agent after you type its name as shown ("Mr. Doyle", not `mr-doyle`): its VM and the VM's image, its keys, receipts, recovery backups, logs and the folder troupe wrote for it. The name is then free. It reminds you to revoke its keys at their providers and delete its Slack app. A sandbox troupe has no record of (a Lab, another tool's) is refused. |
 | `troupe upgrade NAME` | Moves an agent created from a published kit onto the newest version of its kit (same MAJOR), keeping everything it has, then makes its seeded skills and scripts match that version; each edit of the agent's own that a seed replaces is kept in `~/.local/state/live-apply/NAME/`, so harvest its lessons into the kit before publishing that version. An agent already on the newest version is left as it is. Asks for any key the new version requires, and refuses a changed Slack app manifest or a new MAJOR (recreate the agent then). |
-| `troupe resize NAME [--cpu N] [--memory GiB] [--storage GiB]` | Changes an agent's sizes, keeping everything it has: troupe records them and moves the agent into a new VM at them. The root disk can only grow. With no sizes it is a plain move into a fresh VM. If the move fails before it begins, the old sizes stay. The old VM's image is removed once the new VM runs. |
+| `troupe resize NAME [--cpu N\|max] [--memory GiB\|max] [--storage GiB\|max] [--docker GiB\|max]` | Changes an agent's sizes, keeping everything it has: troupe records them and moves the agent into a new VM at them. `max` is as for `create`, with the agent's own VM not counted against it. The root disk can only grow; the new VM's Docker disk starts empty at any size (images and cache are rebuilt). With no sizes it is a plain move into a fresh VM. If the move fails before it begins, the old sizes stay. The old VM's image is removed once the new VM runs. |
 
 `reset` and `delete` ask you to confirm, then for sudo before any work; `chat` needs no sudo.
 
@@ -167,7 +173,10 @@ were proven at create, so a move checks only the VM's side), then one model turn
 moved agent proves it works; nothing asks you after sudo. Hermes is updated in the new VM only
 when its image lacks the agent's commit. The quiesced pre-move backup stays with the receipts
 as the restore point. Each step of either leaves a receipt, so an interrupted run resumes when
-run again.
+run again. Before any downtime, a resize checks the host can hold both archives above a 50 GiB
+reserve, counting what the root filesystem actually holds (as the VM reports it, plus a tenth)
+rather than its declared size, so an agent with a large, mostly empty disk can still move; each
+archive is still capped while it streams, whatever the VM said.
 
 `troupe reset NAME --check` proves the reset's preflight would pass (sandboxd, the keys, the
 units, the machine's budget and the kit) and changes nothing but the host's build cache: no

@@ -45,13 +45,14 @@ var deleteHelp = help.Render(help.Command{
 })
 
 var resizeHelp = help.Render(help.Command{
-	Summary: "Change an agent's CPUs, memory or root disk, keeping everything it has.",
+	Summary: "Change an agent's CPUs, memory or disks, keeping everything it has.",
 	Usage:   []string{"resize AGENT [flags]"},
 	Args:    []help.Arg{{Name: "AGENT", Desc: "The agent to resize."}},
 	Flags: []help.Flag{
-		{Name: "cpu", Value: "N", Desc: "CPUs.", Default: "unchanged"},
-		{Name: "memory", Value: "GiB", Desc: "Memory in GiB.", Default: "unchanged"},
-		{Name: "storage", Value: "GiB", Desc: "Root disk in GiB; it can only grow.", Default: "unchanged"},
+		{Name: "cpu", Value: "N|max", Desc: "CPUs; max is all this machine has.", Default: "unchanged"},
+		{Name: "memory", Value: "GiB|max", Desc: "Memory in GiB; max is all that is left after the host's reserve and the VM's overhead.", Default: "unchanged"},
+		{Name: "storage", Value: "GiB|max", Desc: "Root disk in GiB; it can only grow. max adds all the free disk left (after 10% kept free).", Default: "unchanged"},
+		{Name: "docker", Value: "GiB|max", Desc: "Docker disk in GiB; the new VM's starts empty, as on every resize (images and cache are rebuilt). With --storage max too, the free disk is split in the current sizes' ratio.", Default: "unchanged"},
 		{Name: "force", Desc: "Resize even over the machine's resource budget.", Default: "ask"},
 	},
 	Notes: []string{
@@ -219,12 +220,10 @@ func terminal(f *os.File) bool {
 }
 
 func resizeCommand(e env, args []string) int {
-	var cpus, memoryGiB, storageGiB int
+	var f sizeFlags
 	force := false
 	rest, code, ok := subcommand(e, "resize", resizeHelp, args, func(set *flag.FlagSet) {
-		set.IntVar(&cpus, "cpu", 0, "")
-		set.IntVar(&memoryGiB, "memory", 0, "")
-		set.IntVar(&storageGiB, "storage", 0, "")
+		f.register(set)
 		set.BoolVar(&force, "force", false, "")
 	})
 	if !ok {
@@ -233,7 +232,7 @@ func resizeCommand(e env, args []string) int {
 	if len(rest) != 1 {
 		return usageError(e, resizeHelp, "resize: name one agent")
 	}
-	if err := sizesInRange(cpus, memoryGiB, storageGiB); err != nil {
+	if err := f.inRange(); err != nil {
 		return usageError(e, resizeHelp, "resize: %v", err)
 	}
 	name := rest[0]
@@ -250,36 +249,39 @@ func resizeCommand(e env, args []string) int {
 	}
 	// A local agent's sizes are its own folder's files, which troupe never edits: it moves
 	// at them, and is refused new ones.
-	if filepath.Dir(folder) != filepath.Join(reg.Data, "agents") && (cpus > 0 || memoryGiB > 0 || storageGiB > 0) {
+	if filepath.Dir(folder) != filepath.Join(reg.Data, "agents") && f.given() {
 		return fail(e, fmt.Errorf("%s's sizes are in its own folder (%s): edit cpus and memory in sbxenv.yaml or the disks in storage.env, then run troupe resize %s", name, folder, name))
 	}
 	kit, err := agent.ReadKit(reg, name)
 	if err != nil {
 		return fail(e, err)
 	}
-	next := budget.Want{Name: name, CPUs: kit.CPUs, MemoryGiB: kit.MemoryGiB}
-	root := kit.RootGiB
-	if cpus > 0 {
-		next.CPUs = cpus
+	if f.storage.n > 0 && f.storage.n < kit.RootGiB {
+		return fail(e, fmt.Errorf("the root disk can only grow: %s has %d GiB", name, kit.RootGiB))
 	}
-	if memoryGiB > 0 {
-		next.MemoryGiB = memoryGiB
+	if f.docker.given() && kit.DockerGiB == 0 {
+		return fail(e, fmt.Errorf("%s has no Docker disk to resize", name))
 	}
-	if storageGiB > 0 {
-		if storageGiB < kit.RootGiB {
-			return fail(e, fmt.Errorf("the root disk can only grow: %s has %d GiB", name, kit.RootGiB))
-		}
-		root = storageGiB
-	}
-	changed := next.CPUs != kit.CPUs || next.MemoryGiB != kit.MemoryGiB || root != kit.RootGiB
-	if changed && agent.Open(name) {
-		return fail(e, fmt.Errorf("an earlier run on %s stopped partway; finish it first (run it again: troupe resize %s without sizes resumes a move)", name, name))
-	}
+	current := published.Defaults{CPUs: kit.CPUs, MemoryGiB: kit.MemoryGiB, RootGiB: kit.RootGiB, DockerGiB: kit.DockerGiB}
 	a, err := lifecycleAgent(e, "resize", name, true)
 	if err != nil {
 		return fail(e, err)
 	}
-	next.DiskGrowthGiB = root - kit.RootGiB
+	room, err := machineRoom(e, a.Runner, f, name)
+	if err != nil {
+		return a.Report(budgetFailure(err))
+	}
+	sizes, err := f.resolve(current, room, true)
+	if err != nil {
+		return a.Report(budgetFailure(err))
+	}
+	changed := sizes != current
+	if changed && agent.Open(name) {
+		return fail(e, fmt.Errorf("an earlier run on %s stopped partway; finish it first (run it again: troupe resize %s without sizes resumes a move)", name, name))
+	}
+	root := sizes.RootGiB
+	next := budget.Want{Name: name, CPUs: sizes.CPUs, MemoryGiB: sizes.MemoryGiB,
+		DiskGrowthGiB: max(root-kit.RootGiB+sizes.DockerGiB-kit.DockerGiB, 0)}
 	if err := checkBudget(e, a.Runner, a.Printer, next, askBudget(force)); err != nil {
 		return a.Report(budgetFailure(err))
 	}
@@ -291,10 +293,10 @@ func resizeCommand(e env, args []string) int {
 	defer stopSudo()
 	restore := func() {}
 	if changed {
-		if restore, err = published.Resize(folder, next.CPUs, next.MemoryGiB, root); err != nil {
+		if restore, err = published.Resize(folder, sizes.CPUs, sizes.MemoryGiB, root, sizes.DockerGiB); err != nil {
 			return fail(e, err)
 		}
-		a.Printer.Print("resize", progress.Info, fmt.Sprintf("New sizes recorded: %d CPUs, %d GiB memory, %d GiB root disk", next.CPUs, next.MemoryGiB, root))
+		a.Printer.Print("resize", progress.Info, "New sizes recorded: "+f.describe(sizes))
 	}
 	result := runTransaction(e, "resize", name, skipBudget, func(a *agent.Agent, o agent.RecreateOptions) error {
 		return a.Migrate(e.ctx, o)

@@ -47,9 +47,10 @@ func createTypeHelp(t published.Type) string {
 		Usage:   []string{"create " + t.Name + " --name NAME [flags]"},
 		Flags: []help.Flag{
 			{Name: "name", Value: "NAME", Desc: "The agent's name, kept as typed (at most 35 characters).", Required: true},
-			{Name: "cpu", Value: "N", Desc: "CPUs.", Default: strconv.Itoa(d.CPUs)},
-			{Name: "memory", Value: "GiB", Desc: "Memory in GiB.", Default: strconv.Itoa(d.MemoryGiB)},
-			{Name: "storage", Value: "GiB", Desc: "Root disk in GiB.", Default: strconv.Itoa(d.RootGiB)},
+			{Name: "cpu", Value: "N|max", Desc: "CPUs; max is all this machine has.", Default: strconv.Itoa(d.CPUs)},
+			{Name: "memory", Value: "GiB|max", Desc: "Memory in GiB; max is all that is left after the host's reserve and the VM's overhead.", Default: strconv.Itoa(d.MemoryGiB)},
+			{Name: "storage", Value: "GiB|max", Desc: "Root disk in GiB; max is the free disk left (after 10% kept free) once the Docker disk is set.", Default: strconv.Itoa(d.RootGiB)},
+			{Name: "docker", Value: "GiB|max", Desc: "Docker disk (images, build cache) in GiB; with --storage max too, the free disk is split in the default sizes' ratio.", Default: strconv.Itoa(d.DockerGiB)},
 			{Name: "soul", Value: "FILE", Desc: "The agent's SOUL.md.", Default: t.Soul},
 			{Name: "avatar", Value: "PATH|URL", Desc: "Profile picture: a PNG or JPEG file, or an https address.", Default: "none"},
 			{Name: "force", Desc: "Create even over the machine's resource budget.", Default: "ask"},
@@ -114,9 +115,7 @@ func createCommand(e env, args []string) int {
 		set.StringVar(&f.name, "name", "", "")
 		set.StringVar(&f.soul, "soul", "", "")
 		set.StringVar(&f.avatar, "avatar", "", "")
-		set.IntVar(&f.cpus, "cpu", 0, "")
-		set.IntVar(&f.memoryGiB, "memory", 0, "")
-		set.IntVar(&f.storageGiB, "storage", 0, "")
+		f.sizes.register(set)
 		set.BoolVar(&f.force, "force", false, "")
 	})
 	if !ok {
@@ -128,7 +127,7 @@ func createCommand(e env, args []string) int {
 	if f.name == "" {
 		return usageError(e, createHelp, "create: give the new agent a name with --name")
 	}
-	if err := sizesInRange(f.cpus, f.memoryGiB, f.storageGiB); err != nil {
+	if err := f.sizes.inRange(); err != nil {
 		return usageError(e, createHelp, "create: %v", err)
 	}
 	return createPublished(e, rest[0], f)

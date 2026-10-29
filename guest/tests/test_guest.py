@@ -3,6 +3,7 @@ import contextlib
 import importlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +17,7 @@ sys.modules.setdefault('hermes_yaml', importlib.import_module('yaml'))
 GUEST = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GUEST))
 storage = importlib.import_module('storage')
+disk = importlib.import_module('disk')
 update = importlib.import_module('update')
 install = importlib.import_module('install')
 fresh = importlib.import_module('fresh')
@@ -96,6 +98,21 @@ class Dispatch(unittest.TestCase):
         self.assertEqual(self.run_guest('stopped').returncode, 2)  # a release job's module is not a job name
         for helper in ('archive', 'install'):  # helper modules are never jobs
             self.assertEqual(self.run_guest(helper).returncode, 2)
+
+
+class Disk(unittest.TestCase):
+    def test_answers_what_the_root_filesystem_holds(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = disk.main([])
+        answer = json.loads(out.getvalue())
+        stat = os.statvfs("/")
+        self.assertEqual((code, answer["status"]), (0, "passed"))
+        self.assertGreater(answer["used_bytes"], 0)
+        self.assertLessEqual(answer["used_bytes"], stat.f_blocks * stat.f_frsize)
+
+    def test_takes_no_arguments(self):
+        self.assertEqual(disk.main(['x']), 2)
 
 
 class Storage(unittest.TestCase):

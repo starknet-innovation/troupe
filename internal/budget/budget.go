@@ -147,6 +147,38 @@ func Check(h Host, sandboxes []Sandbox, w Want) Result {
 	return r
 }
 
+// Room is the most one agent may take: the largest sizes Check passes without asking. A figure
+// this machine's could not be read for is -1, never a guess.
+type Room struct {
+	CPUs      int
+	MemoryGiB int // whole GiB of guest memory, after this VM's own overhead
+	DiskGiB   int // whole GiB of disk the agent may add, for both its disks together
+}
+
+// Max is the room for name on this machine: the reserves Check keeps, less every other running
+// sandbox. CPUs are all the machine's threads unless other VMs would pass the overcommit: CPU is
+// time-shared, so the host is still scheduled; memory is the hard limit.
+func Max(h Host, sandboxes []Sandbox, name string) Room {
+	room := Room{CPUs: -1, MemoryGiB: -1, DiskGiB: -1}
+	if h.Memory > 0 && h.Cores > 0 {
+		memory := (h.Memory-h.SandboxdRSS)/mib - ReserveGiB*1024 - OverheadMiB
+		cpus := int64(h.Cores) * (100 + CPUOvercommitPercent) / 100
+		for _, s := range sandboxes {
+			if s.Name != name && s.Running {
+				memory -= int64(s.MemoryMiB) + OverheadMiB
+				cpus -= int64(s.CPUs)
+			}
+		}
+		room.MemoryGiB = int(max(memory, 0) / 1024)
+		room.CPUs = int(max(min(cpus, int64(h.Cores)), 0))
+	}
+	if h.DiskSize > 0 {
+		available := (h.DiskFree-h.DiskSize*DiskReservePercent/100)/gib - h.DiskGrowth/gib
+		room.DiskGiB = int(max(available, 0))
+	}
+	return room
+}
+
 // ceilGiB rounds MiB up to whole GiB, so a committed figure over budget never prints as equal.
 func ceilGiB(m int64) int64 { return (m + 1023) / 1024 }
 

@@ -109,9 +109,9 @@ func TestArchiveHoldsTheJobsAndIsStable(t *testing.T) {
 		names = append(names, f.name)
 	}
 	// The release ships every job but the dev build's harvest, which only the dev build adds.
-	want := "__main__.py align.py archive.py backup.py drain.py fresh.py install.py kit.py ready.py restore.py selftest.py slack.py stop.py stopped.py storage.py update.py"
+	want := "__main__.py align.py archive.py backup.py disk.py drain.py fresh.py install.py kit.py ready.py restore.py selftest.py slack.py stop.py stopped.py storage.py update.py"
 	if _, err := fs.Stat(troupe.GuestDev, "guest/harvest.py"); err == nil {
-		want = "__main__.py align.py archive.py backup.py drain.py fresh.py harvest.py install.py kit.py ready.py restore.py selftest.py slack.py stop.py stopped.py storage.py update.py"
+		want = "__main__.py align.py archive.py backup.py disk.py drain.py fresh.py harvest.py install.py kit.py ready.py restore.py selftest.py slack.py stop.py stopped.py storage.py update.py"
 	}
 	if strings.Join(names, " ") != want {
 		t.Fatalf("files %v", names)

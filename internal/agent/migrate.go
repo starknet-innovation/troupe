@@ -30,11 +30,30 @@ var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // the host's disk, which sandboxd and every other agent's VM share and grow into, is full.
 const reserve = 50 << 30
 
-// enoughForAPair: room for one state and one workspace archive, each at most the declared root
-// disk, above the reserve. Checked before any downtime.
-func (r *recreation) enoughForAPair(folder string) bool {
+// enoughForAPair: room for one state and one workspace archive above the reserve, checked before
+// any downtime. Each archive is at most what the root filesystem holds, as the VM reports it, plus
+// a tenth; a VM with a large disk but little on it can then still be resized. The VM's answer is
+// not trusted for the host's safety (room still caps each stream as it is written), and a
+// missing or absurd answer counts the declared root disk, as before.
+func (r *recreation) enoughForAPair(ctx context.Context, folder string) (bool, error) {
 	free, err := r.free(folder)
-	return err == nil && free >= reserve+2*(int64(r.o.Kit.RootGiB)<<30)
+	if err != nil {
+		return false, nil
+	}
+	archive := int64(r.o.Kit.RootGiB) << 30
+	// A stopped VM is not asked: an exec would boot it, and a refusal would leave it running.
+	if r.vmStopped(ctx) {
+		return free >= reserve+2*archive, nil
+	}
+	result, err := r.call(ctx, 60*time.Second, "disk")
+	if errors.Is(err, ErrInterrupted) {
+		return false, err
+	}
+	// Compared as a float first: a number past int64 would wrap when converted.
+	if used, ok := result["used_bytes"].(float64); err == nil && result["status"] == "passed" && ok && used > 0 && used <= float64(archive) {
+		archive = int64(used) + int64(used)/10
+	}
+	return free >= reserve+2*archive, nil
 }
 
 // room is how many bytes a stream from the VM may write under folder: never more than the
@@ -373,7 +392,9 @@ func (r *recreation) backup(ctx context.Context) error {
 		return err
 	}
 	// Room for the archives before any downtime.
-	if !r.enoughForAPair(r.t.current) {
+	if enough, err := r.enoughForAPair(ctx, r.t.current); err != nil {
+		return err
+	} else if !enough {
 		return Failure{"backup", "not_enough_free_space"}
 	}
 	if err := r.hold(ctx); err != nil {

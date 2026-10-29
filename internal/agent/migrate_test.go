@@ -507,3 +507,56 @@ func TestAResizeRemovesTheReplacedVMsImage(t *testing.T) {
 	}
 	r.order("sbx rm", "created with 20g", "job ready --platform slack", "job selftest", "sbx template template rm --force sandbox-kit-assembled:old")
 }
+
+// The room a resize needs is what the VM's root filesystem holds, not its declared size: a large
+// disk with little on it can still move. The VM's answer only lowers the bar within the declared
+// disk; a missing or absurd one counts the declared disk.
+func TestRoomForAPairCountsWhatTheRootHolds(t *testing.T) {
+	declared := 100
+	for name, c := range map[string]struct {
+		answer string // the disk job's answer; "" is the fake's default, with no used_bytes
+		ok     bool
+	}{
+		"10 GiB held":          {`{"step": "disk", "status": "passed", "used_bytes": 10737418240}`, true},
+		"20 GiB held":          {`{"step": "disk", "status": "passed", "used_bytes": 21474836480}`, false},
+		"no answer":            {"", false},
+		"more than declared":   {`{"step": "disk", "status": "passed", "used_bytes": 1099511627776}`, false},
+		"a failed job":         {`{"step": "disk", "status": "failed"}`, false},
+		"a negative used size": {`{"step": "disk", "status": "passed", "used_bytes": -1}`, false},
+		"past int64":           {`{"step": "disk", "status": "passed", "used_bytes": 1e30}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newMigrateRig(t)
+			r.opts.Kit.RootGiB = declared
+			// Room for two 11 GiB archives above the reserve, never for two declared disks.
+			r.agent.Free = func(string) (int64, error) { return reserve + 30<<30, nil }
+			if c.answer != "" {
+				r.write("answer-disk", c.answer+"\n")
+			}
+			err := r.migrate()
+			refused := err != nil && strings.Contains(err.Error(), "not_enough_free_space")
+			if refused == c.ok {
+				t.Fatalf("err %v\n%s", err, r.calls())
+			}
+			if refused && strings.Contains(r.calls(), "job drain") {
+				t.Fatalf("drained without room:\n%s", r.calls())
+			}
+		})
+	}
+}
+
+// A stopped agent's VM is never asked how much it holds: the exec would boot it, and a refusal for
+// space would leave it running. Its declared disk is counted instead.
+func TestRoomForAPairNeverBootsAStoppedVM(t *testing.T) {
+	r := newMigrateRig(t)
+	r.stopped("stopped")
+	r.opts.Kit.RootGiB = 100
+	r.agent.Free = func(string) (int64, error) { return reserve + 30<<30, nil }
+	r.write("answer-disk", `{"step": "disk", "status": "passed", "used_bytes": 1024}`+"\n")
+	if err := r.migrate(); err == nil || !strings.Contains(err.Error(), "not_enough_free_space") {
+		t.Fatalf("err %v", err)
+	}
+	if strings.Contains(r.calls(), "job disk") {
+		t.Fatalf("asked a stopped VM:\n%s", r.calls())
+	}
+}
