@@ -9,13 +9,14 @@ and maintaining agent kits: [docs/development.md](docs/development.md).
 
 ## Install
 
-troupe is not published yet. Once it is, one command installs it:
+On Linux (x86_64, with KVM), with Docker and Docker Sandboxes (`docker-sbx`) installed and sbx
+signed in to Docker (`sbx login`), one command installs the latest release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/starknet-innovation/troupe/main/install.sh | sh
 ```
 
-Until then, install a troupe you built ([Build](#build)) the same way, from this checkout:
+A troupe you built ([Build](#build)) installs the same way, from a checkout:
 
 ```bash
 TROUPE_BINARY=/path/to/troupe sh install.sh

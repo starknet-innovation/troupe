@@ -82,7 +82,7 @@ boot.
 
 ## Releasing
 
-No release yet. The recipe:
+The recipe (first release: v0.1.0):
 
 ```bash
 git tag vX.Y.Z
