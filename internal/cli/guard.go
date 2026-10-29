@@ -41,8 +41,8 @@ func guardCommand(e env, args []string) int {
 	if !ok {
 		return code
 	}
-	// Progress lines name the host here; the machine settings set the clock's zone.
-	printer := progress.New("Host", hostLocation(e))
+	// Progress lines name the host here.
+	printer := progress.New("Host")
 	printer.Out, printer.Err = e.out, e.err
 	paths := guard.Default()
 	switch {

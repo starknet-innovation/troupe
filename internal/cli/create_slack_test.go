@@ -108,7 +108,7 @@ func TestTheSlackStepsAreAOneClickLinkAndWriteNothing(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	var out bytes.Buffer
-	printer := &progress.Printer{Agent: "Mr. Doyle", Location: time.UTC, Out: &out, Err: &out, Now: time.Now}
+	printer := &progress.Printer{Agent: "Mr. Doyle", Out: &out, Err: &out, Now: time.Now}
 	if err := slackSteps(printer, kit, "Mr. Doyle", true); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestAKitSettingCannotShadowTheKitsOwnLines(t *testing.T) {
 func TestKitSettingsAreAskedAndMatchTheirPattern(t *testing.T) {
 	defer func(saved func(context.Context, string) (string, error)) { readLine = saved }(readLine)
 	var out bytes.Buffer
-	printer := &progress.Printer{Agent: "Jane", Location: time.UTC, Out: &out, Err: &out, Now: time.Now}
+	printer := &progress.Printer{Agent: "Jane", Out: &out, Err: &out, Now: time.Now}
 	e := env{ctx: context.Background(), out: &out, err: &out}
 	settings := []published.Setting{
 		{Env: "TEAM_NAME", Prompt: "Team name", Help: "Change it later in chat.", Pattern: "[a-z]+(,[a-z]+)*"},
@@ -308,7 +308,7 @@ func TestTheSlackLinkIsTheWholeAddress(t *testing.T) {
 	kit := kitWithSlack(t)
 	t.Chdir(t.TempDir())
 	var out bytes.Buffer
-	printer := &progress.Printer{Agent: "Jane", Location: time.UTC, Out: &out, Err: &out, Now: time.Now}
+	printer := &progress.Printer{Agent: "Jane", Out: &out, Err: &out, Now: time.Now}
 	if err := slackSteps(printer, kit, "Jane", false); err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func TestTheSlackLinkIsTheWholeAddress(t *testing.T) {
 func TestTheManagerIsAMemberID(t *testing.T) {
 	defer func(saved func(context.Context, string) (string, error)) { readLine = saved }(readLine)
 	var out bytes.Buffer
-	printer := &progress.Printer{Agent: "Jane", Location: time.UTC, Out: &out, Err: &out, Now: time.Now}
+	printer := &progress.Printer{Agent: "Jane", Out: &out, Err: &out, Now: time.Now}
 	e := env{ctx: context.Background(), out: &out, err: &out}
 	answers := []string{"@jane", "C0123456789", "W0123456789"}
 	readLine = func(context.Context, string) (string, error) { a := answers[0]; answers = answers[1:]; return a, nil }
@@ -360,7 +360,7 @@ func TestTheManagerIsAskedAfterASkippedSlackKey(t *testing.T) {
 		return "U0MANAGER1", nil
 	}
 	var out bytes.Buffer
-	printer := &progress.Printer{Agent: "Jane", Location: time.UTC, Out: &out, Err: &out, Now: time.Now}
+	printer := &progress.Printer{Agent: "Jane", Out: &out, Err: &out, Now: time.Now}
 	t.Chdir(t.TempDir())
 	k, err := askKeys(env{ctx: context.Background(), out: &out, err: &out}, printer, kit, "jane", "Jane", false, sbx.Runner{})
 	if err != nil || k.slackManager != "U0MANAGER1" || len(k.natives)+len(k.placeholders) != 0 {

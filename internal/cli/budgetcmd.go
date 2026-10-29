@@ -54,7 +54,7 @@ func budgetCommand(e env, args []string) int {
 	if len(rest) != 0 || !sandboxName.MatchString(w.Name) || w.CPUs < 1 || w.MemoryGiB < 1 || w.DiskGrowthGiB < 0 || w.Count < 1 {
 		return usageError(e, budgetHelp, "budget check needs --name, and --cpu, --memory, --disk and --count as whole numbers")
 	}
-	printer := progress.New(label(w.Name), hostLocation(e))
+	printer := progress.New(label(w.Name))
 	printer.Out, printer.Err = e.out, e.err
 	return budgetCheck(e, sbx.Runner{Paths: guard.Default(), Log: stateFile(w.Name, "budget.log")}, printer, w)
 }

@@ -133,7 +133,7 @@ func newRig(t *testing.T) *rig {
 	r.agent = &Agent{
 		Name: "ada", Command: "reset", Paths: paths, Slack: true,
 		Terminal: strings.NewReader(""), Probe: noProbe, State: filepath.Join(dir, "state"),
-		Printer: &progress.Printer{Agent: "Ada", Location: time.UTC, Out: &r.out, Err: &r.err, Now: func() time.Time { return clock }},
+		Printer: &progress.Printer{Agent: "Ada", Out: &r.out, Err: &r.err, Now: func() time.Time { return clock }},
 		Runner:  runner,
 		Timing: Timing{ReadyTries: 3, ReadyEvery: time.Millisecond, StopWait: 50 * time.Millisecond, StopEvery: time.Millisecond,
 			Keepalive: time.Hour, Drain: DrainTiming{Poll: time.Millisecond, Refresh: time.Hour, Note: time.Hour}},

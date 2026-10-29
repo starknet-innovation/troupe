@@ -57,7 +57,7 @@ func storageCommand(e env, args []string) int {
 		workspace = rest[3]
 	}
 
-	printer := progress.New(label(name), hostLocation(e))
+	printer := progress.New(label(name))
 	printer.Out, printer.Err = e.out, e.err
 	runner := sbx.Runner{Paths: guard.Default(), Log: stateFile(name, "storage.log")}
 	printer.Print("storage", progress.Started, "")

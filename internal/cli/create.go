@@ -58,7 +58,7 @@ func createPublished(e env, typ string, f createFlags) int {
 	if err != nil {
 		return fail(e, err)
 	}
-	printer := progress.New(display, machine.Location())
+	printer := progress.New(display)
 	printer.Out, printer.Err = e.out, e.err
 	// The machine first: a problem found later would stop the creation partway.
 	if err := machineReady(printer); err != nil {

@@ -97,7 +97,7 @@ func newUpdateHost(t *testing.T) *updateHost {
 	clock := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	h.agent = &Agent{
 		Name: "ada", Command: "update", Probe: noProbe,
-		Printer: &progress.Printer{Agent: "Ada", Location: time.UTC, Out: &h.out, Err: &h.err, Now: func() time.Time { return clock }},
+		Printer: &progress.Printer{Agent: "Ada", Out: &h.out, Err: &h.err, Now: func() time.Time { return clock }},
 		Runner:  sbx.Runner{Binary: filepath.Join(dir, "bin/sbx"), Log: filepath.Join(dir, "native.log"), Probe: noProbe},
 		Timing:  DefaultTiming(),
 	}

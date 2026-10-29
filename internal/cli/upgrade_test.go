@@ -17,7 +17,7 @@ import (
 // lifecycleAgentForTest is an agent that only prints, into a buffer.
 func lifecycleAgentForTest(t *testing.T) (*agent.Agent, *bytes.Buffer) {
 	var out bytes.Buffer
-	return &agent.Agent{Name: "jane", Printer: &progress.Printer{Agent: "Jane", Location: time.UTC, Out: &out, Err: &out, Now: time.Now}}, &out
+	return &agent.Agent{Name: "jane", Printer: &progress.Printer{Agent: "Jane", Out: &out, Err: &out, Now: time.Now}}, &out
 }
 
 func TestUpgradeStepFollowsTheVersionRule(t *testing.T) {

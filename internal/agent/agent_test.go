@@ -102,7 +102,7 @@ func newHost(t *testing.T) *host {
 		Name: "ada", Command: "test", Paths: paths, Slack: true,
 		Terminal: strings.NewReader(""),
 		Probe:    noProbe,
-		Printer:  &progress.Printer{Agent: "Ada", Location: time.UTC, Out: &h.out, Err: &h.err, Now: func() time.Time { return clock }},
+		Printer:  &progress.Printer{Agent: "Ada", Out: &h.out, Err: &h.err, Now: func() time.Time { return clock }},
 		Runner:   sbx.Runner{Paths: paths, Binary: filepath.Join(bin, "sbx"), Log: filepath.Join(dir, "native.log"), Probe: noProbe},
 		Timing: Timing{
 			ReadyTries: 3, ReadyEvery: time.Millisecond,

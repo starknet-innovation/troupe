@@ -136,11 +136,10 @@ func newHarvestHost(t *testing.T, c harvestCase) *harvestHost {
 	h.e = env{ctx: context.Background(), out: h.out, err: h.err, kitsFlag: h.root, tools: tools{
 		runner: sbx.Runner{Binary: filepath.Join(h.tools, "sbx"), Log: filepath.Join(dir, "sbx.log"),
 			Paths: guard.Paths{Pairs: filepath.Join(dir, "pairs")}, Probe: func(context.Context) error { return nil }},
-		scratch:  filepath.Join(dir, "scratch"),
-		state:    filepath.Join(dir, "state"),
-		updates:  filepath.Join(dir, "live-apply"),
-		location: time.UTC,
-		now:      func() time.Time { return time.Date(2026, 9, 23, 20, 0, 0, 0, time.UTC) },
+		scratch: filepath.Join(dir, "scratch"),
+		state:   filepath.Join(dir, "state"),
+		updates: filepath.Join(dir, "live-apply"),
+		now:     func() time.Time { return time.Date(2026, 9, 23, 20, 0, 0, 0, time.UTC) },
 	}}
 	return h
 }

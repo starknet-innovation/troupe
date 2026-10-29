@@ -132,7 +132,7 @@ func (a *Agent) Stop(ctx context.Context, capMinutes int) (err error) {
 func (a *Agent) quietCancel() {
 	quiet := *a
 	quiet.Runner.Detached = true
-	quiet.Printer = &progress.Printer{Agent: a.Printer.Agent, Location: a.Printer.Location,
+	quiet.Printer = &progress.Printer{Agent: a.Printer.Agent,
 		Out: discard{}, Err: discard{}, Now: a.Printer.Now}
 	if err := quiet.CancelDrain(context.Background()); err != nil {
 		a.Printer.Print("drain", progress.Failed, "Could not clear the drain marker. Run: troupe drain "+a.Name+" --cancel")

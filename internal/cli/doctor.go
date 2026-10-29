@@ -40,7 +40,7 @@ func doctorCommand(e env, args []string) int {
 	if len(rest) != 0 {
 		return usageError(e, doctorHelp, "doctor takes no arguments")
 	}
-	printer := progress.New("This machine", hostLocation(e))
+	printer := progress.New("This machine")
 	printer.Out, printer.Err = e.out, e.err
 	// The release check is the doctor's own, never create's: a network call create could not show.
 	lines := append(machineCheck(), releaseLine(e.ctx))

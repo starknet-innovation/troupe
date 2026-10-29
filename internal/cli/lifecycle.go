@@ -64,16 +64,12 @@ func lifecycleAgent(e env, command, name string, registered bool) (*agent.Agent,
 	if !sandboxName.MatchString(name) {
 		return nil, fmt.Errorf("malformed agent name: %s", name)
 	}
-	machine, err := config.LoadMachine()
-	if err != nil {
-		// Drain and gateway stop run from units and recovery; a broken settings file must not
-		// stop them, and they use no setting but the clock's zone.
-		if registered {
-			return nil, err
-		}
-		machine = config.Machine{}
+	// A broken settings file stops a command the operator runs; drain and gateway stop run from
+	// units and recovery and must not stop on it.
+	if _, err := config.LoadMachine(); err != nil && registered {
+		return nil, err
 	}
-	printer := progress.New(label(name), machine.Location())
+	printer := progress.New(label(name))
 	printer.Out, printer.Err = e.out, e.err
 	a := &agent.Agent{
 		Name: name, Command: command, Printer: printer,

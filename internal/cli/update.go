@@ -74,7 +74,7 @@ func updateCommand(e env, args []string) int {
 	if len(rest) != 0 {
 		return usageError(e, updateHelp, "update takes no arguments")
 	}
-	printer := progress.New("troupe", hostLocation(e))
+	printer := progress.New("troupe")
 	printer.Out, printer.Err = e.out, e.err
 	current := running()
 	if devBuild || !release.MatchString("v"+current) {

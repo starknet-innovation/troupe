@@ -13,7 +13,7 @@ troupe is a Go CLI that manages Hermes agents, each in its own Docker Sandbox. T
 
 ## Working style
 
-- Operator commands print only `[HH:MM:SS] Agent step: status. Message.` lines; `internal/progress` holds the grammar and its tests.
+- Operator commands print only `Agent step: status. Message.` lines; `internal/progress` holds the grammar and its tests.
 - A command that needs sudo asks for it first, before any other work or prompt, and keeps it fresh until it ends: a password prompt never comes midway. The only prompts allowed before it are confirmations (a destructive command's, the resource budget's, or `create`'s for keys kept below the TPM), so a declined one asks for nothing.
 - Replies to the owner: no dash punctuation or hyphenated phrasing (use commas, colons, periods, parentheses; keep exact code and identifiers). Times in the owner's time zone. No duration estimates for plans or work.
 - Tests: `go vet ./... && go test ./...`, the same with `-tags dev`, and `python3 -m unittest discover -s guest/tests`.

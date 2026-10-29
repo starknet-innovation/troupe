@@ -36,24 +36,18 @@ type tools struct {
 	scratch string
 	// state holds troupe's recreate and migrate receipts; updates its update receipts.
 	state, updates string
-	location       *time.Location
 	now            func() time.Time
 }
 
 func defaultTools() tools {
 	home, _ := os.UserHomeDir()
 	paths := guard.Default()
-	location := time.Local
-	if machine, err := config.LoadMachine(); err == nil {
-		location = machine.Location()
-	}
 	return tools{
-		runner:   sbx.Runner{Paths: paths, Log: logFile("harvest.log")},
-		scratch:  home + "/.cache/hermes-skill-harvest",
-		state:    home + "/.local/state/sandbox-replacements",
-		updates:  home + "/.local/state/live-apply",
-		location: location,
-		now:      time.Now,
+		runner:  sbx.Runner{Paths: paths, Log: logFile("harvest.log")},
+		scratch: home + "/.cache/hermes-skill-harvest",
+		state:   home + "/.local/state/sandbox-replacements",
+		updates: home + "/.local/state/live-apply",
+		now:     time.Now,
 	}
 }
 
@@ -80,7 +74,7 @@ func (e env) registry() (registry.Registry, error) {
 
 // printer prints progress lines for one subject (an agent, a demo).
 func (e env) printer(subject string) *progress.Printer {
-	p := progress.New(subject, e.tools.location)
+	p := progress.New(subject)
 	p.Out, p.Err = e.out, e.err
 	if e.tools.now != nil {
 		p.Now = e.tools.now

@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/starknet-innovation/troupe/internal/config"
 	"github.com/starknet-innovation/troupe/internal/help"
@@ -63,15 +62,6 @@ func (e env) registry() (registry.Registry, config.Kits, error) {
 		reg.Boundary = [2]string{machine.BoundaryPublic, machine.BoundaryPrivate}
 	}
 	return reg, kits, err
-}
-
-// hostLocation is the machine's configured zone, else the host's.
-func hostLocation(e env) *time.Location {
-	machine, err := config.LoadMachine()
-	if err != nil {
-		return time.Local
-	}
-	return machine.Location()
 }
 
 type command func(e env, args []string) int

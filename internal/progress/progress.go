@@ -1,6 +1,6 @@
 // Package progress prints operator lines, one readable sentence per event:
 //
-//	[HH:MM:SS] <Agent> <step>: <status>[ in <duration>]. <Message>.
+//	<Agent> <step>: <status>[ in <duration>]. <Message>.
 //
 // Status is started, ok, skipped, waiting, ACTION or FAILED, or empty for a plain note.
 // ok and FAILED after a started line add the step's duration. FAILED goes to stderr.
@@ -30,16 +30,15 @@ const (
 // Printer writes progress lines for one agent.
 type Printer struct {
 	Agent    string
-	Location *time.Location
 	Out, Err io.Writer
 	// Now is the clock; tests replace it.
 	Now     func() time.Time
 	started map[string]time.Time
 }
 
-// New prints for agent in loc to stdout and stderr.
-func New(agent string, loc *time.Location) *Printer {
-	return &Printer{Agent: agent, Location: loc, Out: os.Stdout, Err: os.Stderr, Now: time.Now}
+// New prints for agent to stdout and stderr.
+func New(agent string) *Printer {
+	return &Printer{Agent: agent, Out: os.Stdout, Err: os.Stderr, Now: time.Now}
 }
 
 var endsSentence = regexp.MustCompile(`[.!?:]$`)
@@ -47,7 +46,7 @@ var endsSentence = regexp.MustCompile(`[.!?:]$`)
 // Line formats one progress line and records step timers.
 func (p *Printer) Line(step, status, message string) string {
 	now := p.Now()
-	text := fmt.Sprintf("[%s] %s %s: ", now.In(p.Location).Format("15:04:05"), p.Agent, step)
+	text := fmt.Sprintf("%s %s: ", p.Agent, step)
 	if status != "" {
 		text += status
 		if status == Started {

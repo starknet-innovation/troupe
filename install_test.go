@@ -20,10 +20,10 @@ case "$1" in
   doctor)
     case "$FAKE_DOCTOR" in
       slow) sleep 1 ;;
-      fail) echo "[10:00:00] This machine kvm: FAILED. /dev/kvm is not usable."; exit 1 ;;
-      warn) echo "[10:00:00] This machine sbx: ACTION. sbx was not found." ;;
-      signedout) echo "[10:00:00] This machine sign-in: ACTION. sbx is not signed in to Docker: run sbx login" ;;
-      *) echo "[10:00:00] This machine kvm: ok." ;;
+      fail) echo "This machine kvm: FAILED. /dev/kvm is not usable."; exit 1 ;;
+      warn) echo "This machine sbx: ACTION. sbx was not found." ;;
+      signedout) echo "This machine sign-in: ACTION. sbx is not signed in to Docker: run sbx login" ;;
+      *) echo "This machine kvm: ok." ;;
     esac ;;
   guard) [ "$FAKE_PROBE" = fail ] && { echo "sandboxd does not answer"; exit 1; }; exit 0 ;;
   units) [ "$FAKE_RENDER" = fail ] && { echo "troupe: render failed" >&2; exit 1; }; printf '%s %s\n' "$UNIT_TEXT" "$3" ;;

@@ -52,7 +52,7 @@ var Settings = withKits([]Setting{
 	{
 		Key:     "timezone",
 		stored:  "string",
-		Help:    "Time zone of progress lines, such as Europe/Paris.",
+		Help:    "The owner's time zone, for the times tools show them (troupe's own lines carry none), such as Europe/Paris.",
 		Default: "the host's",
 		parse: func(text string) (any, error) {
 			if _, err := time.LoadLocation(text); err != nil || text == "" || text == "Local" {
@@ -241,7 +241,7 @@ func DataDir() string {
 	return filepath.Join(base, "troupe")
 }
 
-// Location is the zone progress times are printed in.
+// Location is the owner's zone, for the times tools show them.
 func (m Machine) Location() *time.Location {
 	if m.Timezone == "" {
 		return time.Local
