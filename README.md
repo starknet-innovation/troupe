@@ -66,7 +66,7 @@ troupe create hermes --name jane
 ```
 
 creates a new agent from the latest published kit of an agent type, with no kits checkout.
-The types are `coder` and `hermes`; `troupe create TYPE --help` shows each one's sizes and what it asks for.
+The types are `coder`, `bouncer` (screens outsiders' GitHub text for coder agents) and `hermes`; `troupe create TYPE --help` shows each one's sizes and what it asks for.
 First it makes sure sbx accepts kits from `REGISTRY/` (a fresh sbx allows only `docker.io/`): it adds
 that prefix to sbx's `kit.allowedSources`, keeping every entry there, which admits no other kits on
 the same host. troupe pulls `REGISTRY/TYPE:latest` (the `registry` machine setting) and pins the version it

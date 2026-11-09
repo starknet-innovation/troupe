@@ -64,7 +64,7 @@ func createTypeHelp(t published.Type) string {
 	})
 }
 
-// typeList is the types as help names them: "coder or hermes".
+// typeList is the types as help names them: "coder, bouncer or hermes".
 func typeList() string {
 	var names []string
 	for _, t := range published.Types {

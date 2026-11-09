@@ -76,7 +76,7 @@ func TestGatewayStopIgnoresABrokenSettingsFile(t *testing.T) {
 // Every command and subcommand of this build answers --help on stdout, within the width, and
 // every flag it defines is described (subcommand refuses one that is not).
 func TestEveryHelpFitsAndDescribesItsFlags(t *testing.T) {
-	forms := [][]string{{}, {"create", "coder"}, {"create", "hermes"}, {"secret", "set"}, {"secret", "check"},
+	forms := [][]string{{}, {"create", "coder"}, {"create", "bouncer"}, {"create", "hermes"}, {"secret", "set"}, {"secret", "check"},
 		{"config", "get"}, {"guard", "probe"}, {"guard", "check"}, {"units", "render"}, {"gateway", "stop"}}
 	if devBuild {
 		forms = append(forms, []string{"agents", "list"}, []string{"agents", "show"}, []string{"reseed", "skills"}, []string{"budget", "check"},
@@ -102,6 +102,7 @@ func TestEveryHelpFitsAndDescribesItsFlags(t *testing.T) {
 func TestCreateHelpIsPerType(t *testing.T) {
 	_, coder, _ := run("create", "coder", "--help")
 	_, hermes, _ := run("create", "--name", "x", "hermes", "-h")
+	_, bouncer, _ := run("create", "bouncer", "--help")
 	_, short, _ := run("create", "--help")
 	for _, want := range []string{"Default: 8.", "Default: 100.", "  organizations ", "  manager "} {
 		if !strings.Contains(coder, want) {
@@ -113,7 +114,13 @@ func TestCreateHelpIsPerType(t *testing.T) {
 			t.Errorf("hermes help lacks %q or names Slack:\n%s", want, hermes)
 		}
 	}
-	if !strings.Contains(short, "coder or hermes") || !strings.Contains(short, "troupe create hermes --help") ||
+	for _, want := range []string{"Default: 2.", "Default: 30.", "  organizations ", "  manager ", "bouncer's own account"} {
+		if !strings.Contains(bouncer, want) || strings.Contains(bouncer, "starkscan") {
+			t.Errorf("bouncer help lacks %q or asks for Starkscan:\n%s", want, bouncer)
+		}
+	}
+	if !strings.Contains(short, "coder, bouncer or hermes") || !strings.Contains(short, "troupe create bouncer --help") ||
+		!strings.Contains(short, "troupe create hermes --help") ||
 		strings.Contains(short, "--memory") {
 		t.Errorf("short help:\n%s", short)
 	}
@@ -136,7 +143,7 @@ func TestAnUndocumentedFlagIsRefused(t *testing.T) {
 func TestTypeHelpIsTheFirstPositional(t *testing.T) {
 	for args, want := range map[string]string{
 		"--name coder hermes -h": "hermes", "coder --help": "coder", "--name=x hermes -h": "hermes",
-		"--force coder -h": "coder",
+		"--force coder -h": "coder", "bouncer -h": "bouncer",
 	} {
 		got, ok := typeHelpRequested(strings.Fields(args))
 		if !ok || got.Name != want {

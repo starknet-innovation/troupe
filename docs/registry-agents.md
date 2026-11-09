@@ -91,9 +91,9 @@ Only what's truly per agent, in order. Pressing Enter skips an optional item, an
 | Key or field | Required? | Notes |
 |---|---|---|
 | Venice API key | Required | The model provider. |
-| GitHub token | Required for `coder` | The agent finds its own login and ID inside its VM (`gh api user` through the proxy), so there's nothing more to ask and troupe never calls GitHub from the host. |
+| GitHub token | Required for `coder` and `bouncer` | The agent finds its own login and ID inside its VM (`gh api user` through the proxy), so there's nothing more to ask and troupe never calls GitHub from the host. |
 | Starkscan key | Required for `coder` (decided 2026-10-16): its `starkscan` skill assumes the key | |
-| Slack app-level and bot tokens | Required for `coder` (decided 2026-10-14, to revisit); a type without a Slack app manifest (`hermes`) never asks | See [Slack](#slack) below. |
+| Slack app-level and bot tokens | Required for `coder` (decided 2026-10-14, to revisit) and `bouncer`; a type without a Slack app manifest (`hermes`) never asks | See [Slack](#slack) below. |
 
 ### Slack
 
@@ -223,7 +223,7 @@ Neither Docker nor sbx lists a registry's tags, so without a moving tag troupe w
 
 ## Open points for your decision
 
-- The `coder` default sizes are 8 CPUs, 12 GiB memory (your call, for language servers, the browser and builds; raised from 6 and 8 on 2026-10-25), 100 GiB root disk and 20 GiB Docker disk. `hermes` uses 6 GiB memory and 50 GiB and 10 GiB disks, like Hermes Lab.
+- The `coder` default sizes are 8 CPUs, 12 GiB memory (your call, for language servers, the browser and builds; raised from 6 and 8 on 2026-10-25), 100 GiB root disk and 20 GiB Docker disk. `hermes` uses 6 GiB memory and 50 GiB and 10 GiB disks, like Hermes Lab. `bouncer` uses 2 CPUs, 3 GiB memory, a 30 GiB root disk and no Docker disk: it runs only the Hermes gateway and its collector.
 - Decided (2026-10-14, to revisit): Slack and GitHub are required for `coder`; `hermes` is the type without them. `troupe chat` and the end-of-create self-test work for every agent.
 - Measured in step 5 (2026-10-14): a terminal chat runs while the gateway serves Slack in the same VM, and the Slack link, printed whole, creates the app pre-filled. A clickable label alone (OSC 8) showed as plain text with no address in the owner's terminal, so the link is now always printed whole.
 - Step 5 also found that `reset` and `resize` left the replaced VM's assembled image behind (about 3 GB each). Fixed the same day: both remove it once the new VM runs, under `delete`'s rule (never an image any sandbox runs), and a run interrupted before that has it removed by the agent's next reset or resize.
