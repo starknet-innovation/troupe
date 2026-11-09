@@ -27,7 +27,7 @@ var Types = []Type{
 		Soul:     "coder's built-in SOUL",
 		Asks: []Ask{
 			{Name: "GITHUB_ORGANIZATIONS", Label: "organizations", Desc: "GitHub organizations it may work in, as logins.", Optional: true},
-			{Name: "CLEARED_BY", Label: "clearers", Desc: "GitHub accounts whose eyes reaction clears outsiders' text, as logins.", Optional: true},
+			{Name: "BOUNCERS", Label: "bouncers", Desc: "Bouncer agents whose eyes reaction clears outsiders' text, as GitHub logins.", Optional: true},
 			{Name: "venice", Desc: "Venice API key."},
 			{Name: "github", Desc: "GitHub token of the agent's own account."},
 			{Name: "starkscan", Desc: "Starkscan API key."},
