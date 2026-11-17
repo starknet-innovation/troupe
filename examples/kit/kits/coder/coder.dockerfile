@@ -3,7 +3,7 @@
 # this version here, and copies the seeds last so a seed edit rebuilds only those layers.
 # troupe reads the Hermes version from this line; the build stage brings it in below.
 ARG HERMES_VERSION=0.22.2
-FROM docker.io/docker/sandbox-templates:shell-docker
+FROM docker.io/sbx/shell-docker-image:latest
 ARG HERMES_VERSION
 USER root
 COPY --chown=1000:1000 files/home/ /home/agent/
