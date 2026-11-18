@@ -1,0 +1,13 @@
+{
+  "services": [
+    {"name": "model", "prompt": "Model provider API key",
+     "help": "The key of the model provider this kit's config.yaml names.", "required": true,
+     "delivery": "native", "domains": ["api.example.com"]},
+    {"name": "slack-app", "prompt": "Slack app-level token (xapp-…)", "required": true, "slack": true,
+     "delivery": "placeholder", "env": "SLACK_APP_TOKEN", "hosts": ["slack.com"],
+     "placeholder": "sbx-cs-{agent}-slack-app"},
+    {"name": "slack-bot", "prompt": "Slack bot token (xoxb-…)", "required": true, "slack": true,
+     "delivery": "placeholder", "env": "SLACK_BOT_TOKEN", "hosts": ["slack.com"],
+     "placeholder": "sbx-cs-{agent}-slack-bot"}
+  ]
+}

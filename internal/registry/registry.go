@@ -55,6 +55,9 @@ type Published struct {
 	Type      string `json:"type"`
 	Version   string `json:"version"`
 	Hermes    string `json:"hermes"`
+	// Format is the format of the kit's label the folder's files were written from; 0 for a
+	// folder an earlier troupe wrote from a kit's own files, before kits carried a label.
+	Format int `json:"format,omitempty"`
 }
 
 // KitFolder is where troupe keeps a pinned published kit's files.

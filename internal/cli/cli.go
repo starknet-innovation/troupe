@@ -16,7 +16,6 @@ import (
 
 	"github.com/starknet-innovation/troupe/internal/config"
 	"github.com/starknet-innovation/troupe/internal/help"
-	"github.com/starknet-innovation/troupe/internal/published"
 	"github.com/starknet-innovation/troupe/internal/registry"
 )
 
@@ -175,22 +174,9 @@ func subcommand(e env, name, help string, args []string, define func(*flag.FlagS
 	}
 }
 
-// flagHelp is the help that documents a command's flags when the help it shows does not: create
-// shows a short help, and each type's help documents the flags.
-var flagHelp = map[string]func() string{"create": func() string {
-	var all string
-	for _, t := range published.Types {
-		all += createTypeHelp(t)
-	}
-	return all
-}}
-
 // documented refuses a flag the command's help does not describe on a line of its own, so help
 // never drifts from the flags.
 func documented(name, help string, set *flag.FlagSet) error {
-	if more, ok := flagHelp[strings.Fields(name)[0]]; ok {
-		help = more()
-	}
 	var missing []string
 	set.VisitAll(func(f *flag.Flag) {
 		if !regexp.MustCompile(`(?m)^  --` + regexp.QuoteMeta(f.Name) + `( |$)`).MatchString(help) {

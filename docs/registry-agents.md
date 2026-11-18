@@ -123,10 +123,9 @@ The services and their order come from the kit, so another type asks for its own
 | Hardware | x86_64 CPU | the `coder` kit installs x86_64 builds | **fail** |
 | Hardware | KVM (`/dev/kvm` usable by the user) | sbx's microVMs | **fail** |
 | Keys | TPM 2.0, else `systemd-creds`, else a plain file | how keys will be kept ([README](../README.md#key-protection)) | note below a TPM; `create` asks |
-| Hardware | 8 CPUs, 12 GiB memory, 120 GiB free disk, beyond the reserves above | a coder agent at its default size | note; `create` checks each agent's own sizes (a machine that cannot be measured fails) |
 | Software | Linux with systemd (older than 259, the tested version, is noted) | gateway units | warn |
 | Software | Docker | troupe reads the kit's files from the pulled image | warn |
-| Software | a token that reads the kits, in both sbx (`sbx secret set --registry`) and Docker (`docker login`) | sbx pulls the VM image only with its own credential; troupe reads the kit through Docker | warn; `create` asks for the token once (hidden) and stores it in both |
+| Software | a token that reads the kits, in both sbx (`sbx secret set --registry`) and Docker (`docker login`) | sbx pulls the VM image only with its own credential; troupe reads the kit through Docker | warn; `create` asks for the token once (hidden) and stores it in both, unless Docker already holds a login the registry accepts: a refused read then stops with the reason, and that login is never replaced (`docker logout HOST` first to give another token) |
 | Software | sbx 0.48 or newer | the sandboxes | warn |
 | Software | sudo | one-time key enrollment | warn |
 
@@ -147,7 +146,7 @@ curl -fsSL https://raw.githubusercontent.com/starknet-innovation/troupe/main/ins
 2. runs `troupe doctor`;
 3. on a hardware failure, removes the binary (restoring any troupe that was there) and exits non-zero, naming what's missing;
 4. installs troupe's two systemd units when they're missing or changed, asking for sudo only then;
-5. prints the software warnings and the next step, `troupe create coder --name NAME`.
+5. prints the software warnings and the next step, `troupe create TYPE --name NAME`.
 
 No tagged release exists yet; until one does, the installer runs with a local binary. The recipe is in [development.md](development.md#releasing).
 
@@ -166,16 +165,31 @@ No tagged release exists yet; until one does, the installer runs with a local bi
 
 ## What the published kit must carry
 
-troupe needs some type-level files on the host that today come from the kit folder. They move into the kit image at a fixed path, `/usr/share/troupe/`:
-- `services.json`: every service an agent of the type needs, in prompt order, each with its prompt, a short help (what the key is and where to get it), whether it's required, and how sbx delivers it (native, with its domains, or a placeholder, with its environment variable, hosts and placeholder; today's `secrets.json` plus the agents' bindings);
-- `defaults.json`: the default CPUs, memory, root disk and Docker disk;
-- `settings.json`, optional: the settings `create` asks for before the keys, in prompt order, each with the `.env` variable it sets, its prompt, a short help, and the regular expression a non-empty answer must match whole (`{"settings":[{"env":"TEAM_NAME","prompt":"Team name","help":"…","pattern":"[a-z]+"}]}`). None may be a `SLACK_` variable, a line of the kit's `env` template or a placeholder service's variable;
+Two things, neither private or per user.
+
+**One image label, `org.host.troupe.kit`**: what `create` asks for and allocates, as one JSON document (the canonical description is the README's [the kit's label](../README.md#the-kits-label)):
+
+```json
+{"format": 1, "defaults": {...}, "settings": [...], "services": [...]}
+```
+
+- `format`: the label's format number. troupe reads every format up to its own; it grows only for a change an older troupe must not ignore.
+- `defaults`: the default CPUs, memory, root disk and Docker disk (`cpus`, `memory_gib`, `root_gib`, `docker_gib`).
+- `settings`, optional: the settings `create` asks for before the keys, in prompt order, each with the `.env` variable it sets, its prompt, a short help, and the regular expression a non-empty answer must match whole (`{"env":"TEAM_NAME","prompt":"Team name","help":"…","pattern":"[a-z]+"}`). None may be a `SLACK_` variable, a line of the kit's `env` template or a placeholder service's variable.
+- `services`: every service an agent of the type needs, in prompt order, each with its prompt, a short help (what the key is and where to get it), whether it's required, and how sbx delivers it (native, with its domains, or a placeholder, with its environment variable, hosts and placeholder).
+
+The publisher never writes the label by hand: the dev build's `troupe kit label DIR` checks the kit's source folder (`DIR/troupe/defaults.json`, `settings.json`, `services.json`, with `DIR/templates/env` and the Slack app manifest) and prints it, and the build attaches it (`--label`). `create` reads it from the image it pinned and pulled, checks it whole, and keeps it in the kit's folder as `defaults.json`, `settings.json` and `services.json`, which is what the rest of troupe reads. A kit with no label was published before it existed and is refused as too old; one in a newer format is refused with "run `troupe update`". Reading the label from the registry without a pull (`docker buildx imagetools inspect`) serves only `troupe create TYPE --help`.
+
+**Files in the image at a fixed path, `/usr/share/troupe/`**, which troupe needs only after the pull:
 - `SOUL.md`: the type's default SOUL, with `{agent}` for the name (`hermes` has none: Hermes writes its own);
+- `env`: the lines every agent of the type starts its `.env` with (required for a type with Slack);
 - `slack-app-manifest.json`, only in kits whose type offers Slack;
 - `tools/`: the type's setup and seed-check tools;
-- `seeds/`: a copy of the type's seeds (from 1.2.0). The image's `~/.hermes` mixes them with Hermes's own skills and logs, so they can't be read from there.
+- `seeds/`: a copy of the type's seeds. The image's `~/.hermes` mixes them with Hermes's own skills and logs, so they can't be read from there.
 
-None of them is private or per user. troupe reads them with `docker create` plus `docker cp` from the pulled kit, as a capped stream of plain files, and keeps them in `~/.local/share/troupe/kits/TYPE-VERSION/`, laid out like a local kit folder.
+troupe reads them with `docker create` plus `docker cp` from the pulled kit, as a capped stream of plain files, and keeps them in `~/.local/share/troupe/kits/TYPE-VERSION/` beside the label's three files, laid out like a local kit folder. A `defaults.json`, `settings.json` or `services.json` inside the image is never read.
+
+troupe lists no types: `create TYPE` looks for `REGISTRY/TYPE`, so publishing a kit is what adds a type.
 
 One file doesn't move: `slack.env`, the Slack workspace and boundary channels. It's the user's own setting, not the type's. A published agent's workspace is its own: learned from its bot token at its first Slack setup and pinned in the agent's folder (`slack.env`). The boundary channels are optional machine settings (`slack-boundary-public`, `slack-boundary-private`), read at every create and reset, so one set later applies at the next reset (a resize does not probe Slack again); unset, no boundary is checked.
 

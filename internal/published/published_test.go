@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/starknet-innovation/troupe/internal/registry"
+	"github.com/starknet-innovation/troupe/internal/secret"
 )
 
 const (
@@ -23,9 +24,10 @@ const (
 	hermes     = "0.22.2"
 )
 
-// fakeDocker answers pull, image inspect, create, cp and rm like Docker, recording each call.
-// Files in its folder change its answers: inspect (the inspect line), fail-ARG1, refuse (401),
-// and troupe.tar (what cp streams).
+// fakeDocker answers pull, image inspect, buildx imagetools inspect, login, create, cp and rm
+// like Docker, recording each call. Files in its folder change its answers: inspect (the
+// version labels' line), label (the troupe label), labels (every label, as the registry gives
+// them), fail-ARG1, refuse (401), no-login, and troupe.tar (what cp streams).
 const fakeDocker = `#!/bin/sh
 d=$(dirname "$0")
 printf '%s\n' "$*" >> "$d/calls"
@@ -33,7 +35,9 @@ printf '%s\n' "$*" >> "$d/calls"
 [ -f "$d/fail-$1" ] && { echo "failed" >&2; exit 1; }
 case "$1" in
   pull) exit 0 ;;
-  image) cat "$d/inspect" ;;
+  image) case "$*" in *org.host.troupe.kit*) cat "$d/label" ;; *) cat "$d/inspect" ;; esac ;;
+  buildx) cat "$d/labels" ;;
+  login) [ -f "$d/no-login" ] && { echo "error: cannot perform an interactive login from a non-TTY device" >&2; exit 1; }; echo "Login Succeeded" ;;
   create) echo 0123456789abcdef0123456789abcdef ;;
   cp) cat "$d/troupe.tar" ;;
   rm) echo "$2" ;;
@@ -57,6 +61,7 @@ func newFake(t *testing.T) *fake {
 	}
 	t.Setenv("PATH", f.bin+":"+os.Getenv("PATH"))
 	f.set("inspect", `1.2.0 `+hermes)
+	f.set("label", label)
 	f.archive(complete())
 	return f
 }
@@ -67,11 +72,15 @@ func with(files map[string]string, name, text string) map[string]string {
 	return files
 }
 
-// complete is a kit's whole /usr/share/troupe/: what Extract requires, and a skill.
+// label is a kit's troupe label: sizes, one setting and one service.
+const label = `{"format":1,"defaults":{"cpus":4,"memory_gib":6,"root_gib":50,"docker_gib":10},` +
+	`"settings":[{"env":"TEAM","prompt":"Team","pattern":"[a-z]+"}],` +
+	`"services":[{"name":"venice","prompt":"Venice API key","required":true,"delivery":"native","domains":["api.venice.ai"]}]}`
+
+// complete is a kit's whole /usr/share/troupe/: what Extract requires, a template and a skill.
 func complete() map[string]string {
 	return map[string]string{
-		"troupe/services.json":           `{"services":[]}`,
-		"troupe/defaults.json":           `{"cpus":4,"memory_gib":6,"root_gib":50,"docker_gib":10}`,
+		"troupe/SOUL.md":                 "# {agent}\n",
 		"troupe/seeds/config.yaml":       "model: x\n",
 		"troupe/seeds/skills/a/SKILL.md": "# a\n",
 	}
@@ -167,13 +176,26 @@ func TestExtractKeepsTheKitsFilesLikeALocalKit(t *testing.T) {
 	if folder != filepath.Join(f.data, "kits", "hermes-1.2.0") {
 		t.Fatalf("folder %s", folder)
 	}
-	for _, name := range []string{"services.json", "defaults.json", "files/home/.hermes/config.yaml", "files/home/.hermes/skills/a/SKILL.md"} {
+	for _, name := range []string{"SOUL.md", "files/home/.hermes/config.yaml", "files/home/.hermes/skills/a/SKILL.md"} {
 		if _, err := os.Stat(filepath.Join(folder, name)); err != nil {
 			t.Fatal(err)
 		}
 	}
+	// The label, kept as the files the rest of troupe reads in a kit folder.
+	sizes, err := ReadDefaults(folder)
+	if err != nil || sizes != (Defaults{CPUs: 4, MemoryGiB: 6, RootGiB: 50, DockerGiB: 10}) {
+		t.Fatalf("sizes %+v, %v", sizes, err)
+	}
+	settings, err := ReadSettings(folder)
+	if err != nil || len(settings) != 1 || settings[0].Env != "TEAM" {
+		t.Fatalf("settings %+v, %v", settings, err)
+	}
+	services, err := secret.KitServices(folder)
+	if err != nil || len(services) != 1 || services[0].Name != "venice" || !services[0].Required {
+		t.Fatalf("services %+v, %v", services, err)
+	}
 	published, err := registry.ReadPublished(folder)
-	if err != nil || published != (registry.Published{Reference: reference, Type: "hermes", Version: "1.2.0", Hermes: hermes}) {
+	if err != nil || published != (registry.Published{Reference: reference, Type: "hermes", Version: "1.2.0", Hermes: hermes, Format: 1}) {
 		t.Fatalf("record %+v, %v", published, err)
 	}
 	if !strings.Contains(f.calls(), "rm 0123456789abcdef0123456789abcdef") {
@@ -201,13 +223,8 @@ func TestExtractRefusesAnUnsafeOrIncompleteKit(t *testing.T) {
 		"a path outside": func(f *fake) { f.archive(with(complete(), "troupe/../../x", "x")) },
 		"another folder": func(f *fake) { f.archive(with(complete(), "etc/passwd", "x")) },
 		"too large":      func(f *fake) { f.archive(with(complete(), "troupe/x", big)) },
-		"no services": func(f *fake) {
-			f.archive(map[string]string{"troupe/defaults.json": "{}", "troupe/seeds/config.yaml": "x"})
-		},
-		"no seeds (pre 1.2)": func(f *fake) {
-			f.archive(map[string]string{"troupe/defaults.json": "{}", "troupe/services.json": "{}"})
-		},
-		"a failed copy": func(f *fake) { f.set("fail-cp", "") },
+		"no seeds":       func(f *fake) { f.archive(map[string]string{"troupe/SOUL.md": "x"}) },
+		"a failed copy":  func(f *fake) { f.set("fail-cp", "") },
 	}
 	for name, prepare := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -448,5 +465,179 @@ func TestPublicReadsWithoutALogin(t *testing.T) {
 	}
 	if calls, _ := os.ReadFile(filepath.Join(f.bin, "calls")); !strings.Contains(string(calls), "manifest inspect "+reference) {
 		t.Fatalf("calls %s", calls)
+	}
+}
+
+// A kit's own copies of the files the label owns are never read: the label is the only source.
+func TestExtractIgnoresTheImagesCopiesOfTheLabelsFiles(t *testing.T) {
+	f := newFake(t)
+	files := complete()
+	files["troupe/defaults.json"] = `{"cpus":64,"memory_gib":64,"root_gib":64,"docker_gib":64}`
+	files["troupe/services.json"] = `{"services":[{"name":"other","prompt":"O","delivery":"native","domains":["evil.example"]}]}`
+	files["troupe/settings.json"] = `not json`
+	f.archive(files)
+	folder, err := f.docker().Extract(context.Background(), f.data, image())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sizes, _ := ReadDefaults(folder); sizes.CPUs != 4 {
+		t.Fatalf("sizes %+v", sizes)
+	}
+	if services, _ := secret.KitServices(folder); len(services) != 1 || services[0].Name != "venice" {
+		t.Fatalf("services %+v", services)
+	}
+}
+
+// A kit troupe cannot read stops before any of its files is copied out, with what to do.
+func TestExtractRefusesAKitByItsLabel(t *testing.T) {
+	sizes := `"defaults":{"cpus":4,"memory_gib":6,"root_gib":50,"docker_gib":10}`
+	venice := `{"name":"venice","prompt":"V","delivery":"native","domains":["api.venice.ai"]}`
+	for name, c := range map[string]struct{ label, want string }{
+		"no label":                         {"\n", "too old for this troupe"},
+		"a newer format":                   {`{"format":2,"anything":{"at":"all"}}`, "troupe update"},
+		"a newer format with other shapes": {`{"format":2,"defaults":"none","services":{"venice":true}}`, "troupe update"},
+		"another shape in this format":     {`{"format":1,` + sizes + `,"services":{"venice":true}}`, "another type"},
+		"a label padded past the cap":      {label + strings.Repeat(" ", labelLimit) + "x", "larger than"},
+		"no format":                        {`{` + sizes + `,"services":[` + venice + `]}`, "no format"},
+		"not JSON":                         {`{"format":1`, "not a JSON document"},
+		"no services":                      {`{"format":1,` + sizes + `}`, "no services"},
+		"malformed sizes":                  {`{"format":1,"defaults":{"cpus":0},"services":[` + venice + `]}`, "malformed defaults"},
+		"a bad service":                    {`{"format":1,` + sizes + `,"services":[{"name":"x","prompt":"X","delivery":"other"}]}`, `service "x" is malformed`},
+		"a bad setting":                    {`{"format":1,` + sizes + `,"settings":[{"env":"SLACK_X","prompt":"X","pattern":"x"}],"services":[` + venice + `]}`, `setting "SLACK_X"`},
+		"too large":                        {`{"format":1,"pad":"` + strings.Repeat("x", labelLimit) + `"}`, "larger than"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFake(t)
+			f.set("label", c.label)
+			_, err := f.docker().Extract(context.Background(), f.data, image())
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("%v", err)
+			}
+			if strings.Contains(f.calls(), "create") || strings.Contains(f.calls(), "cp ") {
+				t.Fatalf("the kit's files were read:\n%s", f.calls())
+			}
+			if entries, _ := os.ReadDir(filepath.Join(f.data, "kits")); len(entries) != 0 {
+				t.Fatalf("left behind: %v", entries)
+			}
+		})
+	}
+}
+
+// A field this troupe does not know is skipped: a kit may add one without a new format.
+func TestALabelMayCarryFieldsThisTroupeDoesNotKnow(t *testing.T) {
+	k, err := DecodeLabel(strings.Replace(label, `"format":1,`, `"format":1,"later":{"x":1},`, 1))
+	if err != nil || k.Defaults.CPUs != 4 || len(k.Services) != 1 {
+		t.Fatalf("%+v, %v", k, err)
+	}
+	k, err = DecodeLabel(strings.Replace(label, `"name":"venice",`, `"name":"venice","later":true,`, 1))
+	if err != nil || k.Services[0].Name != "venice" {
+		t.Fatalf("%+v, %v", k, err)
+	}
+}
+
+// The label troupe prints is the label it reads back.
+func TestALabelRoundTrips(t *testing.T) {
+	k, err := DecodeLabel(label)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := k.Encode()
+	if err != nil || text != label {
+		t.Fatalf("%v\n%s\n%s", err, text, label)
+	}
+}
+
+// ReadSource reads a kit's source folder strictly, and refuses what create would.
+func TestReadSourceChecksAKitBeforeItIsPublished(t *testing.T) {
+	kit := func(t *testing.T, files map[string]string) string {
+		dir := t.TempDir()
+		base := map[string]string{
+			"troupe/defaults.json": `{"cpus":4,"memory_gib":6,"root_gib":50,"docker_gib":10}`,
+			"troupe/services.json": `{"services":[{"name":"venice","prompt":"V","required":true,"delivery":"native","domains":["api.venice.ai"]}]}`,
+		}
+		for name, text := range files {
+			base[name] = text
+		}
+		for name, text := range base {
+			if text == "" {
+				continue
+			}
+			os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755)
+			os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644)
+		}
+		return dir
+	}
+	slack := `{"services":[{"name":"slack-bot","prompt":"B","required":true,"slack":true,"delivery":"placeholder","env":"SLACK_BOT_TOKEN","hosts":["slack.com"],"placeholder":"p-{agent}"}]}`
+	k, err := ReadSource(kit(t, nil))
+	if err != nil || k.Format != Format || k.Defaults.CPUs != 4 || len(k.Services) != 1 || len(k.Settings) != 0 {
+		t.Fatalf("%+v, %v", k, err)
+	}
+	if _, err := ReadSource(kit(t, map[string]string{"troupe/services.json": slack, "slack-app-manifest.json": "{}", "templates/env": "A=1\n"})); err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range map[string]struct {
+		files map[string]string
+		want  string
+	}{
+		"a misspelled field": {map[string]string{"troupe/services.json": `{"services":[{"name":"venice","prompt":"V","requierd":true,"delivery":"native","domains":["api.venice.ai"]}]}`}, "requierd"},
+		"no sizes":           {map[string]string{"troupe/defaults.json": ""}, "defaults.json"},
+		"a setting the template sets": {map[string]string{"templates/env": "TEAM=x\n",
+			"troupe/settings.json": `{"settings":[{"env":"TEAM","prompt":"T","pattern":"x"}]}`}, "already sets TEAM"},
+		"Slack without the manifest": {map[string]string{"troupe/services.json": slack, "templates/env": "A=1\n"}, "slack-app-manifest.json"},
+		"Slack without the template": {map[string]string{"troupe/services.json": slack, "slack-app-manifest.json": "{}"}, "templates/env"},
+		"a manifest without Slack":   {map[string]string{"slack-app-manifest.json": "{}"}, "without a Slack service"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ReadSource(kit(t, c.files)); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("%v", err)
+			}
+		})
+	}
+}
+
+// Describe reads a kit's label and description from the registry's labels, without a pull.
+func TestDescribeReadsTheRegistrysLabels(t *testing.T) {
+	f := newFake(t)
+	labels, _ := json.Marshal(map[string]string{LabelName: label, "org.opencontainers.image.description": "A kit.\x1b[31m\nSecond line."})
+	f.set("labels", string(labels))
+	k, description, err := f.docker().Describe(context.Background(), repository+":latest")
+	if err != nil || k.Defaults.RootGiB != 50 || description != "A kit. [31m Second line." {
+		t.Fatalf("%+v, %q, %v", k, description, err)
+	}
+	if strings.Contains(f.calls(), "pull") || !strings.Contains(f.calls(), "buildx imagetools inspect "+repository+":latest") {
+		t.Fatalf("calls:\n%s", f.calls())
+	}
+	f.set("labels", `{"org.opencontainers.image.version":"1.0.0"}`)
+	if _, _, err := f.docker().Describe(context.Background(), repository+":latest"); err == nil || !strings.Contains(err.Error(), "too old") {
+		t.Fatalf("%v", err)
+	}
+}
+
+// LoggedIn asks Docker itself whether it holds a login the registry accepts.
+func TestLoggedInAsksDocker(t *testing.T) {
+	f := newFake(t)
+	if !f.docker().LoggedIn(context.Background(), "ghcr.io") || !strings.Contains(f.calls(), "login ghcr.io") {
+		t.Fatalf("calls:\n%s", f.calls())
+	}
+	f.set("no-login", "")
+	if f.docker().LoggedIn(context.Background(), "ghcr.io") {
+		t.Fatal("a login without one")
+	}
+}
+
+// A kit folder an earlier troupe kept, from a kit that had no label, still serves the agents on
+// it, but is never what a new create or an upgrade starts from: that kit is too old.
+func TestExtractRefusesAFolderKeptBeforeTheLabel(t *testing.T) {
+	f := newFake(t)
+	folder := registry.KitFolder(f.data, reference)
+	os.MkdirAll(folder, 0o755)
+	os.WriteFile(filepath.Join(folder, registry.PublishedFile),
+		[]byte(`{"reference":"`+reference+`","type":"hermes","version":"1.2.0","hermes":"`+hermes+`"}`), 0o644)
+	if kept, err := registry.ReadPublished(folder); err != nil || kept.Format != 0 {
+		t.Fatalf("an earlier troupe's record must still read: %+v, %v", kept, err)
+	}
+	_, err := f.docker().Extract(context.Background(), f.data, image())
+	if err == nil || !strings.Contains(err.Error(), "too old for this troupe") || f.calls() != "" {
+		t.Fatalf("%v, calls %q", err, f.calls())
 	}
 }

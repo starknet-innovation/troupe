@@ -21,6 +21,7 @@ are listed in `embed_dev.go` (the rest in `embed.go`).
 |---|---|
 | `troupe agents list\|show\|materialize\|slack-manifest` | Lists the agents of the kits root and published agents, shows an agent's kits and seeds, writes its composed seed home, prints its Slack app manifest. |
 | `troupe reseed skills\|scripts\|soul AGENT` | Puts seed changes into a running agent without a reset. Your seeds win: it overwrites the agent's own edits to those files and keeps each overwritten copy in its receipt. Needs a finished reset or create. |
+| `troupe kit label DIR` | Checks a kit's source folder as `create` would and prints its label: the one line of JSON its published image must carry as `org.host.troupe.kit` ([the kit's label](../README.md#the-kits-label)). It reads `DIR/troupe/` (`defaults.json`, `services.json` and, for a kit with settings, `settings.json`), `DIR/templates/env` and `DIR/slack-app-manifest.json`; a kit `create` would refuse, or a field troupe does not know, exits 1 and prints nothing. The publisher runs it before every build and passes the output to the build (`docker buildx build --label org.host.troupe.kit=…`). |
 | `troupe harvest AGENT` | Read only collection of the agent's own skill edits, before a reset, reseed or upgrade replaces them; it prints where they are and the next step (blend them into the kit by hand or with an LLM, then reseed or upgrade); any agent, one created from a published kit included (its seeds are the pinned kit's). |
 | `troupe storage check AGENT` | Checks a sandbox's disks and mounts against its declared storage. |
 | `troupe budget check --name NAME --cpu N --memory GiB --disk GiB [--count N]` | Whether this machine has room for a new sandbox (or `--count` of them at once), counted as `create` counts a new agent: exit 0 when it fits, 3 when over budget (with the figures; the caller decides), 1 when it can never fit or the check could not run. Never asks; other tools (such as a Lab's) call it before creating a sandbox. |
@@ -42,7 +43,10 @@ setting (`troupe config set kits DIR`). Kits are Docker Sandbox v3 kits:
   (`coder.yaml`, `kind: workload`; sbx names a local kit after its folder), its recipe
   (`coder.dockerfile`, which names Hermes with one line `ARG HERMES_VERSION=X.Y.Z`), its
   seeds under `files/home/.hermes` and optionally `tools/seed-check.py`, `tools/setup.py`,
-  `secrets.json`, `slack.env` and `slack-app-manifest.json`.
+  `secrets.json`, `slack.env` and `slack-app-manifest.json`. A kit meant to be published also
+  holds `troupe/` (`defaults.json`, `services.json` and optionally `settings.json`: what
+  `troupe kit label` turns into its label) and `templates/` (`SOUL.md` with `{agent}` for the
+  name, and `env`, which its recipe copies to `/usr/share/troupe/`).
 - An agent is a mixin on it plus its environment (`agents/ada`): `ada.yaml` (`kind: mixin`,
   `requires: ["coder"]`), `ada.dockerfile`, its seeds, `storage.env`, and an `sbxenv.yaml`
   whose `name:` is the folder's and whose `kits:` are the workload (a relative `../` path)

@@ -116,7 +116,7 @@ func (i *installer) installed() string {
 func TestInstallPutsTroupeInPlaceAndItsUnits(t *testing.T) {
 	i := newInstaller(t)
 	code, out := i.run()
-	if code != 0 || i.installed() != fakeTroupe || !strings.Contains(out, "Next: troupe create coder --name NAME") {
+	if code != 0 || i.installed() != fakeTroupe || !strings.Contains(out, "Next: troupe create TYPE --name NAME") {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	for _, unit := range []string{"sbx-daemon.service", "hermes-gateway@.service"} {

@@ -3,12 +3,14 @@ package cli
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/starknet-innovation/troupe/internal/doctor"
+	"github.com/starknet-innovation/troupe/internal/published"
 	"github.com/starknet-innovation/troupe/internal/secret"
 )
 
@@ -24,8 +26,10 @@ func TestCreateArguments(t *testing.T) {
 		"two types":            {[]string{"create", "coder", "hermes", "--name", "jane"}, "name one agent type"},
 		"a name without an ID": {[]string{"create", "hermes", "--name", "!!!"}, "at least one Latin letter or digit"},
 		"a name too long":      {[]string{"create", "hermes", "--name", strings.Repeat("a", 36)}, "longer than 35 characters"},
-		"a malformed type":     {[]string{"create", "../hermes", "--name", "jane"}, "TYPE must be coder, bouncer or hermes"},
-		"an unknown type":      {[]string{"create", "other", "--name", "jane"}, "TYPE must be coder, bouncer or hermes"},
+		"a malformed type":     {[]string{"create", "../hermes", "--name", "jane"}, "TYPE is a kit's name in the registry"},
+		"a type with capitals": {[]string{"create", "Hermes", "--name", "jane"}, "TYPE is a kit's name in the registry"},
+		"a type YAML rereads":  {[]string{"create", "true", "--name", "jane"}, "TYPE is a kit's name in the registry"},
+		"a type ending badly":  {[]string{"create", "hermes-", "--name", "jane"}, "TYPE is a kit's name in the registry"},
 		"a negative size":      {[]string{"create", "hermes", "--name", "jane", "--memory", "-1"}, "a whole number or max"},
 		"a size not a number":  {[]string{"create", "hermes", "--name", "jane", "--docker", "lots"}, "a whole number or max"},
 		"a Lab's name":         {[]string{"create", "hermes", "--name", "hermes-lab"}, "a Lab's"},
@@ -378,5 +382,45 @@ func TestAResumedCreateKeepsItsKeysTier(t *testing.T) {
 				t.Fatalf("asked %v: %s%s", asked, out, errs)
 			}
 		})
+	}
+}
+
+// troupe knows no type: any well formed name is a kit to look for in the registry.
+func TestAnyKitNameIsAType(t *testing.T) {
+	for _, name := range []string{"hermes", "coder", "bouncer", "a", "my-new-type", "x2"} {
+		if !kitType(name) {
+			t.Errorf("%s refused", name)
+		}
+	}
+	for _, name := range []string{"", "-x", "x-", "2x", "a_b", "a.b", "a/b", "null", "no", "on", "y", strings.Repeat("a", 64)} {
+		if kitType(name) {
+			t.Errorf("%q accepted", name)
+		}
+	}
+}
+
+// A registry answers alike for a kit it does not hold and one a login may not read, so a
+// mistyped type looks refused: with a login Docker holds and the registry accepts, create stops
+// there and never asks for a token that would replace it.
+func TestARefusedReadNeverReplacesAWorkingLogin(t *testing.T) {
+	_, bin := home(t)
+	docker := published.Docker{Log: io.Discard}
+	fake := func(login string) {
+		os.WriteFile(filepath.Join(bin, "docker"), []byte("#!/bin/sh\necho \"docker $*\" >> \""+bin+"/calls\"\n"+
+			"[ \"$1\" = login ] && "+login+"\nexit 1\n"), 0o755)
+	}
+	fake("exit 0")
+	err := keepLogin(context.Background(), docker, "ghcr.io", "ghcr.io/example/nosuchtype")
+	if err == nil || !strings.Contains(err.Error(), "no ghcr.io/example/nosuchtype kit, or this machine's Docker login cannot read it") {
+		t.Fatalf("%v", err)
+	}
+	calls, _ := os.ReadFile(filepath.Join(bin, "calls"))
+	if string(calls) != "docker login ghcr.io\n" {
+		t.Fatalf("calls %q: the check gives Docker no user and no token", calls)
+	}
+	// No login the registry accepts: nothing to keep, so create goes on to ask for a token.
+	fake("exit 1")
+	if err := keepLogin(context.Background(), docker, "ghcr.io", "ghcr.io/example/hermes"); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -45,8 +45,8 @@ func createPublished(e env, typ string, f createFlags) int {
 	if err != nil {
 		return usageError(e, createHelp, "create: %v", err)
 	}
-	if _, ok := published.TypeNamed(typ); !ok {
-		return usageError(e, createHelp, "create: TYPE must be %s", typeList())
+	if !kitType(typ) {
+		return usageError(e, createHelp, "create: TYPE is a kit's name in the registry: lowercase letters, digits and hyphens")
 	}
 	if strings.HasSuffix(name, "-lab") {
 		return usageError(e, createHelp, "create: a name ending in -lab is a Lab's, never an agent's")
@@ -175,13 +175,7 @@ func createPublished(e env, typ string, f createFlags) int {
 	}
 	hasSlack := exists(filepath.Join(kit, "slack-app-manifest.json"))
 	if hasSlack && !exists(filepath.Join(kit, "env")) {
-		return report("kit", fmt.Errorf("%s %s is too old for troupe create: it has Slack but no env template", typ, img.Version))
-	}
-	// troupe's help describes each type's kit as it was; a newer kit is followed, and said so.
-	if asks, err := kitAsks(kit, settings); err != nil {
-		return report("kit", err)
-	} else if t, _ := published.TypeNamed(typ); t.Differs(sizes, asks) {
-		printer.Print("kit", progress.Info, fmt.Sprintf("%s %s's sizes or questions differ from this troupe's help; troupe follows the kit", typ, img.Version))
+		return report("kit", fmt.Errorf("%s %s has Slack but no env template", typ, img.Version))
 	}
 	if f.sizes.docker.given() && sizes.DockerGiB == 0 {
 		return report("kit", fmt.Errorf("%s %s has no Docker disk; leave out --docker", typ, img.Version))
@@ -277,6 +271,18 @@ func resolve(e env, printer *progress.Printer, docker published.Docker, runner s
 		return published.Image{}, err
 	}
 	refused := err != nil
+	// A registry answers alike for a kit it does not hold and one this login may not read, so a
+	// mistyped type lands here too. A login that works is never replaced for it: troupe asks for
+	// a token only when Docker holds none the registry accepts.
+	if refused {
+		if err := keepLogin(e.ctx, docker, host, repository); err != nil {
+			return published.Image{}, err
+		}
+	}
+	if refused {
+		// Nothing tells a missing kit from one that needs a token: say both before asking.
+		fmt.Fprintf(e.err, "%s could not be read: there is no such kit (check the type's name; Ctrl-C stops), or it needs a token.\n", repository)
+	}
 	fmt.Fprintf(e.err, "%s needs a token that can read its kits (on GitHub: a classic token with read:packages).\n", host)
 	user, err := readLine(e.ctx, "Registry username: ")
 	if err != nil {
@@ -300,6 +306,15 @@ func resolve(e env, printer *progress.Printer, docker published.Docker, runner s
 		return published.Image{}, fmt.Errorf("%s refused the token, or has no kit %s", host, repository)
 	}
 	return img, err
+}
+
+// keepLogin stops a refused read of repository when Docker already holds a login its registry
+// accepts, so that login is never replaced: the kit is missing, or that login may not read it.
+func keepLogin(ctx context.Context, docker published.Docker, host, repository string) error {
+	if docker.LoggedIn(ctx, host) {
+		return fmt.Errorf("no %s kit, or this machine's Docker login cannot read it (to give another token, run docker logout %s first)", repository, host)
+	}
+	return nil
 }
 
 // keys is what create collected: the native services the agent's sbxenv declares, the placeholder
@@ -448,62 +463,34 @@ func kitSettings(kit string) ([]published.Setting, error) {
 	if err != nil || len(settings) == 0 {
 		return settings, err
 	}
-	taken := map[string]bool{}
 	template, err := os.ReadFile(filepath.Join(kit, "env"))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	for _, line := range strings.Split(string(template), "\n") {
-		if key, _, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
-			taken[key] = true
-		}
-	}
+	var services []secret.KitService
 	if exists(filepath.Join(kit, secret.ServicesFile)) {
-		services, err := secret.KitServices(kit)
-		if err != nil {
+		if services, err = secret.KitServices(kit); err != nil {
 			return nil, err
 		}
-		for _, s := range services {
-			if s.Env != "" {
-				taken[s.Env] = true
-			}
-		}
 	}
-	for _, s := range settings {
-		if taken[s.Env] {
-			return nil, fmt.Errorf("settings.json: the kit already sets %s", s.Env)
-		}
+	if err := published.SettingsClash(settings, template, services); err != nil {
+		return nil, fmt.Errorf("settings.json: %w", err)
 	}
 	return settings, nil
 }
 
-// kitAsks is what create will ask for, in order, by name: the kit's settings, its services,
-// and "manager" after its last Slack service.
-func kitAsks(kit string, settings []published.Setting) ([]published.Ask, error) {
-	var asks []published.Ask
-	for _, s := range settings {
-		asks = append(asks, published.Ask{Name: s.Env, Optional: true})
+// kitType reports whether a type can name a kit: the last component of a registry repository,
+// starting with a letter, and never a word YAML reads as a value (the type is written into the
+// agent's sbxenv.yaml and its mixin as it is).
+func kitType(name string) bool {
+	switch name {
+	case "true", "false", "null", "yes", "no", "on", "off", "y", "n":
+		return false
 	}
-	services, err := secret.KitServices(kit)
-	if err != nil {
-		return nil, err
-	}
-	slack := 0
-	for _, s := range services {
-		if s.Slack {
-			slack++
-		}
-	}
-	for _, s := range services {
-		asks = append(asks, published.Ask{Name: s.Name, Optional: !s.Required})
-		if s.Slack {
-			if slack--; slack == 0 {
-				asks = append(asks, published.Ask{Name: "manager"})
-			}
-		}
-	}
-	return asks, nil
+	return kitTypeName.MatchString(name)
 }
+
+var kitTypeName = regexp.MustCompile(`^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 // askSettings asks for each setting the kit declares, in its order, as ENV=value lines for the
 // agent's .env. Enter leaves one empty; a third answer that does not match stops. Whatever the

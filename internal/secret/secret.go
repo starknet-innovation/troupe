@@ -53,20 +53,24 @@ const (
 type KitService struct {
 	Name        string   `json:"name"`
 	Prompt      string   `json:"prompt"`
-	Help        string   `json:"help"` // printed before the prompt: what the key is and where to get it
-	Required    bool     `json:"required"`
-	Slack       bool     `json:"slack"`
+	Help        string   `json:"help,omitempty"` // printed before the prompt: what the key is and where to get it
+	Required    bool     `json:"required,omitempty"`
+	Slack       bool     `json:"slack,omitempty"`
 	Delivery    string   `json:"delivery"`
-	Domains     []string `json:"domains"`
-	Env         string   `json:"env"`
-	Hosts       []string `json:"hosts"`
-	Placeholder string   `json:"placeholder"`
+	Domains     []string `json:"domains,omitempty"`
+	Env         string   `json:"env,omitempty"`
+	Hosts       []string `json:"hosts,omitempty"`
+	Placeholder string   `json:"placeholder,omitempty"`
 }
 
 // domainName is a host name a binding or a placeholder may name.
 var domainName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 
-// KitServices reads and checks a published kit's services.json, in the order create asks.
+// ServiceLimit is the most services one kit may declare.
+const ServiceLimit = 64
+
+// KitServices reads and checks a kit's services.json (a published kit's kept copy, or a kit's
+// source), in the order create asks.
 func KitServices(base string) ([]KitService, error) {
 	path := filepath.Join(base, ServicesFile)
 	data, err := os.ReadFile(path)
@@ -81,8 +85,23 @@ func KitServices(base string) ([]KitService, error) {
 	if err := decoder.Decode(&declared); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := CheckKitServices(declared.Services); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return declared.Services, nil
+}
+
+// CheckKitServices checks the services a kit declares, wherever they were read from: at least
+// one, each well formed, no name twice.
+func CheckKitServices(services []KitService) error {
+	if len(services) == 0 {
+		return errors.New("no services")
+	}
+	if len(services) > ServiceLimit {
+		return fmt.Errorf("more than %d services", ServiceLimit)
+	}
 	seen := map[string]bool{}
-	for _, s := range declared.Services {
+	for _, s := range services {
 		bad := !serviceName.MatchString(s.Name) || seen[s.Name] || strings.TrimSpace(s.Prompt) == "" || len(s.Prompt) > 200 ||
 			utf8.RuneCountInString(s.Help) > 500 || strings.IndexFunc(s.Prompt+s.Help, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0
 		switch s.Delivery {
@@ -100,14 +119,11 @@ func KitServices(base string) ([]KitService, error) {
 			bad = true
 		}
 		if bad {
-			return nil, fmt.Errorf("%s: service %q is malformed", path, s.Name)
+			return fmt.Errorf("service %q is malformed", s.Name)
 		}
 		seen[s.Name] = true
 	}
-	if len(declared.Services) == 0 {
-		return nil, fmt.Errorf("%s: no services", path)
-	}
-	return declared.Services, nil
+	return nil
 }
 
 // A service name becomes a file name and a credential name; an env name, an environment

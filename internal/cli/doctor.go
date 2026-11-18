@@ -20,7 +20,7 @@ var doctorHelp = help.Render(help.Command{
 	Summary: "Check whether this machine can host agents, one line per requirement.",
 	Usage:   []string{"doctor"},
 	Notes: []string{
-		"Fails without the hardware: an x86_64 CPU, KVM, room for one coder agent.",
+		"Fails without the hardware: an x86_64 CPU and KVM. Room for an agent is create's to check, against its kit's sizes.",
 		"Says how keys are kept: sealed by a TPM 2.0, else the host key only (systemd-creds, systemd 256+), else plain files.",
 		"Asks for your action on software: systemd, Docker buildx, sbx 0.48+, sbx signed in to Docker (sbx login), sudo, troupe's units.",
 		"Exit 1 on any failure. create runs the same checks first.",
@@ -29,7 +29,7 @@ var doctorHelp = help.Render(help.Command{
 
 // machineCheck runs the doctor's checks on this machine; tests replace it.
 var machineCheck = func() []doctor.Line {
-	return doctor.Check(doctor.Default(guard.Default().Sandboxd, unitsCurrent))
+	return doctor.Check(doctor.Default(unitsCurrent))
 }
 
 func doctorCommand(e env, args []string) int {

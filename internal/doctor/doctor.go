@@ -18,8 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/starknet-innovation/troupe/internal/budget"
-	"github.com/starknet-innovation/troupe/internal/published"
 	"github.com/starknet-innovation/troupe/internal/secret"
 )
 
@@ -42,10 +40,8 @@ type Line struct {
 
 // Host is where the checks read this machine.
 type Host struct {
-	Arch     string // runtime.GOARCH
-	KVM      string // /dev/kvm
-	Budget   budget.Paths
-	Measure  func(budget.Paths) budget.Host                    // budget.Measure; tests give fixed figures
+	Arch     string                                            // runtime.GOARCH
+	KVM      string                                            // /dev/kvm
 	Run      func(name string, args ...string) (string, error) // a program's standard output
 	LookPath func(name string) (string, error)
 	Units    func() error // troupe's units are installed, current and running the sandbox daemon
@@ -53,12 +49,10 @@ type Host struct {
 }
 
 // Default is this machine.
-func Default(sandboxd string, units func() error) Host {
+func Default(units func() error) Host {
 	config, _ := os.UserConfigDir()
 	return Host{
 		Arch: runtime.GOARCH, KVM: "/dev/kvm",
-		Budget:  budget.Paths{Meminfo: "/proc/meminfo", Proc: "/proc", Sandboxd: sandboxd},
-		Measure: budget.Measure,
 		Run: func(name string, args ...string) (string, error) {
 			// Every call has a deadline: a hung program never hangs create.
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -72,17 +66,9 @@ func Default(sandboxd string, units func() error) Host {
 	}
 }
 
-// One agent at the coder type's default size: what a machine must hold beyond its reserves.
-var (
-	coder          = published.Coder().Defaults
-	agentCPUs      = coder.CPUs
-	agentMemoryGiB = coder.MemoryGiB
-	agentDiskGiB   = coder.RootGiB + coder.DockerGiB
-)
-
 // Check runs every check, hardware first.
 func Check(h Host) []Line {
-	lines := []Line{arch(h), kvm(h), keys(h), room(h)}
+	lines := []Line{arch(h), kvm(h), keys(h)}
 	return append(lines, systemd(h), docker(h), sbxVersion(h), signIn(h), sudo(h), units(h))
 }
 
@@ -151,40 +137,6 @@ func tpmLibraries(h Host) string {
 		return "unnamed"
 	}
 	return strings.Join(missing, ", ")
-}
-
-// room is one coder agent at its default size against an empty machine, with the reserves create
-// uses: the machine's memory, cores and free disk, not what existing sandboxes hold or may grow
-// (create weighs those, and asks). Not fitting is a note: create checks each agent's own sizes, so
-// a smaller agent may still fit. Only a machine that cannot be measured fails. The sandbox
-// daemon's folder may not exist yet: its nearest existing parent holds the disks.
-func room(h Host) Line {
-	paths := h.Budget
-	for dir := paths.Sandboxd; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-		if _, err := os.Stat(dir); err == nil {
-			paths.Sandboxd = dir
-			break
-		}
-	}
-	host := h.Measure(paths)
-	host.SandboxdRSS, host.DiskGrowth = 0, 0
-	result := budget.Check(host, nil, budget.Want{Name: "one agent", CPUs: agentCPUs,
-		MemoryGiB: agentMemoryGiB, DiskGrowthGiB: agentDiskGiB})
-	need := fmt.Sprintf("room for a coder agent at its default size (%d CPUs, %d GiB memory, %d GiB disk) beyond the reserves", agentCPUs, agentMemoryGiB, agentDiskGiB)
-	smaller := "; create checks each agent's own sizes, so a smaller one (--cpu, --memory, --storage) may still fit"
-	switch {
-	case len(result.Notes) > 0:
-		return Line{"room", Fail, strings.Join(result.Notes, "; ")}
-	case result.Impossible != "":
-		return Line{"room", Note, "no " + need + ": " + result.Impossible + smaller}
-	case len(result.Over) > 0:
-		var over []string
-		for _, l := range result.Over {
-			over = append(over, l.String())
-		}
-		return Line{"room", Note, "no " + need + ": " + strings.Join(over, "; ") + smaller}
-	}
-	return Line{"room", OK, need}
 }
 
 var firstNumber = regexp.MustCompile(`[0-9]+`)

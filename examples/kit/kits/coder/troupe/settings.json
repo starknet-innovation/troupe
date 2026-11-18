@@ -1,0 +1,7 @@
+{
+  "settings": [
+    {"env": "TEAM_NAME", "prompt": "Team name (lowercase letters)",
+     "help": "The team this agent works for. Its manager changes it later in Slack.",
+     "pattern": "[a-z]+"}
+  ]
+}

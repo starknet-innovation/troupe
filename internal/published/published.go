@@ -1,7 +1,7 @@
 // Package published turns a published agent kit into what troupe needs on the host: it resolves
-// a kit's latest version to that version's own tag, keeps the kit's /usr/share/troupe/ files in
-// troupe's data folder (laid out like a local kit folder, so the rest of troupe reads it
-// unchanged), and writes a new agent's folder on that kit.
+// a kit's latest version to that version's own tag, keeps the kit's label and its
+// /usr/share/troupe/ files in troupe's data folder (laid out like a local kit folder, so the rest
+// of troupe reads it unchanged), and writes a new agent's folder on that kit.
 //
 // The kit is the publisher's, read through the operator's Docker: its files are read from a tar
 // stream with a size cap, as plain files and folders only.
@@ -119,6 +119,14 @@ func (d Docker) Resolve(ctx context.Context, repository string) (Image, error) {
 	return img, nil
 }
 
+// LoggedIn reports whether this machine's Docker holds a login the registry host accepts: Docker
+// authenticates with what it has stored and, given no terminal, never asks for one. The login
+// is left as it is.
+func (d Docker) LoggedIn(ctx context.Context, host string) bool {
+	_, err := d.run(ctx, time.Minute, nil, "login", host)
+	return err == nil
+}
+
 // Public reports whether anyone can read the kit at reference, without a login: Docker reads its
 // manifest with an empty configuration, so no stored credential is used. sbx and its daemon
 // read a public kit without one too (measured with sbx 0.50.1), so no token is needed.
@@ -143,9 +151,10 @@ func (d Docker) Public(ctx context.Context, reference string) bool {
 	return cmd.Run() == nil
 }
 
-// Extract keeps the pinned kit's troupe files in data/kits/TYPE-VERSION once: services.json,
-// defaults.json and the rest at the top, its seeds under files/home/.hermes, and troupe's own
-// record (kit.json). A folder already there is reused.
+// Extract keeps what troupe reads of the pinned kit in data/kits/TYPE-VERSION once: its label as
+// services.json, defaults.json and settings.json, its /usr/share/troupe/ files beside them (the
+// templates, the tools, the Slack app manifest), its seeds under files/home/.hermes, and
+// troupe's own record (kit.json). A folder already there is reused.
 func (d Docker) Extract(ctx context.Context, data string, img Image) (string, error) {
 	folder := registry.KitFolder(data, img.Reference)
 	if folder == "" {
@@ -155,9 +164,19 @@ func (d Docker) Extract(ctx context.Context, data string, img Image) (string, er
 		if kept.Reference != img.Reference {
 			return "", fmt.Errorf("%s holds %s, not %s", folder, kept.Reference, img.Reference)
 		}
+		// A folder kept before kits carried a label serves the agents already on it (reset,
+		// resize, secret), never a new create or an upgrade: that kit is as old as it was.
+		if kept.Format == 0 {
+			return "", decodeForError(img.Reference, ErrNoLabel)
+		}
 		return folder, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(folder), 0o700); err != nil {
+		return "", err
+	}
+	// The label first: a kit this troupe cannot read stops before its files are copied out.
+	kit, err := d.Label(ctx, img.Reference)
+	if err != nil {
 		return "", err
 	}
 	staging, err := os.MkdirTemp(filepath.Dir(folder), ".extract-")
@@ -188,14 +207,16 @@ func (d Docker) Extract(ctx context.Context, data string, img Image) (string, er
 	if unpackErr != nil {
 		return "", unpackErr
 	}
-	// Kits before 1.2.0 carry no copy of their seeds, which troupe checks the new VM against.
-	for _, need := range []string{"services.json", "defaults.json", "files/home/.hermes/config.yaml"} {
-		if info, err := os.Lstat(filepath.Join(staging, filepath.FromSlash(need))); err != nil || !info.Mode().IsRegular() {
-			return "", fmt.Errorf("%s: the kit has no %s; it is too old for troupe create", img.Reference, need)
-		}
+	// A copy of the kit's seeds, which troupe checks the new VM against.
+	need := "files/home/.hermes/config.yaml"
+	if info, err := os.Lstat(filepath.Join(staging, filepath.FromSlash(need))); err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s: the kit has no %s", img.Reference, need)
+	}
+	if err := kit.write(staging); err != nil {
+		return "", err
 	}
 	record, err := json.MarshalIndent(registry.Published{Reference: img.Reference, Type: img.Type,
-		Version: img.Version, Hermes: img.Hermes}, "", "  ")
+		Version: img.Version, Hermes: img.Hermes, Format: kit.Format}, "", "  ")
 	if err != nil {
 		return "", err
 	}
@@ -213,7 +234,7 @@ func (d Docker) Extract(ctx context.Context, data string, img Image) (string, er
 
 // unpack writes the tar stream of /usr/share/troupe (docker cp names its entries troupe/...)
 // into dir: plain files and folders only, no path outside it, the seeds/ folder as
-// files/home/.hermes, and at most fileLimit bytes in all.
+// files/home/.hermes, never a file the label owns, and at most fileLimit bytes in all.
 func unpack(stream io.Reader, dir string) error {
 	archive := tar.NewReader(stream)
 	total, entries := int64(0), 0
@@ -233,7 +254,7 @@ func unpack(stream io.Reader, dir string) error {
 		if top != path.Base(troupeFiles) || strings.HasPrefix(name, "/") || strings.Contains("/"+name+"/", "/../") {
 			return fmt.Errorf("the kit's files: unexpected entry %q", header.Name)
 		}
-		if rest == "" {
+		if rest == "" || labelFiles[rest] {
 			continue
 		}
 		if first, after, _ := strings.Cut(rest, "/"); first == "seeds" {
@@ -277,7 +298,7 @@ type Defaults struct {
 	DockerGiB int `json:"docker_gib"`
 }
 
-// ReadDefaults reads a published kit folder's defaults.json.
+// ReadDefaults reads a kit folder's defaults.json.
 func ReadDefaults(folder string) (Defaults, error) {
 	var d Defaults
 	data, err := os.ReadFile(filepath.Join(folder, "defaults.json"))
@@ -286,26 +307,35 @@ func ReadDefaults(folder string) (Defaults, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&d); err != nil || d.CPUs < 1 || d.MemoryGiB < 1 || d.RootGiB < 1 || d.DockerGiB < 0 {
+	if err := decoder.Decode(&d); err != nil || d.check() != nil {
 		return Defaults{}, fmt.Errorf("%s: malformed defaults", filepath.Join(folder, "defaults.json"))
 	}
 	return d, nil
 }
 
-// Setting is one value a kit's settings.json asks for at create, never a key: the answer goes
-// into the agent's .env as ENV=value. Every setting is optional; a non-empty answer must match
-// Pattern whole.
+func (d Defaults) check() error {
+	if d.CPUs < 1 || d.MemoryGiB < 1 || d.RootGiB < 1 || d.DockerGiB < 0 {
+		return errors.New("malformed defaults")
+	}
+	return nil
+}
+
+// Setting is one value a kit asks for at create, never a key: the answer goes into the agent's
+// .env as ENV=value. Every setting is optional; a non-empty answer must match Pattern whole.
 type Setting struct {
 	Env     string `json:"env"`
 	Prompt  string `json:"prompt"`
-	Help    string `json:"help"` // printed before the prompt: what the value is and how to change it later
+	Help    string `json:"help,omitempty"` // printed before the prompt: what the value is and how to change it later
 	Pattern string `json:"pattern"`
 }
 
+// SettingLimit is the most settings one kit may declare.
+const SettingLimit = 64
+
 var settingEnv = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
 
-// ReadSettings reads and checks a kit's settings.json, in the order create asks; a kit without
-// one has none. Slack's settings are troupe's own, never a kit's.
+// ReadSettings reads and checks a kit folder's settings.json, in the order create asks; a kit
+// without one has none. Slack's settings are troupe's own, never a kit's.
 func ReadSettings(folder string) ([]Setting, error) {
 	path := filepath.Join(folder, "settings.json")
 	data, err := os.ReadFile(path)
@@ -323,18 +353,28 @@ func ReadSettings(folder string) ([]Setting, error) {
 	if err := decoder.Decode(&declared); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := checkSettings(declared.Settings); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return declared.Settings, nil
+}
+
+func checkSettings(settings []Setting) error {
+	if len(settings) > SettingLimit {
+		return fmt.Errorf("more than %d settings", SettingLimit)
+	}
 	seen := map[string]bool{}
-	for _, s := range declared.Settings {
+	for _, s := range settings {
 		_, compileErr := regexp.Compile(s.Pattern)
 		if !settingEnv.MatchString(s.Env) || strings.HasPrefix(s.Env, "SLACK_") || seen[s.Env] ||
 			strings.TrimSpace(s.Prompt) == "" || len(s.Prompt) > 200 || len([]rune(s.Help)) > 500 ||
 			strings.IndexFunc(s.Prompt+s.Help, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 ||
 			s.Pattern == "" || compileErr != nil {
-			return nil, fmt.Errorf("%s: setting %q is malformed", path, s.Env)
+			return fmt.Errorf("setting %q is malformed", s.Env)
 		}
 		seen[s.Env] = true
 	}
-	return declared.Settings, nil
+	return nil
 }
 
 // Native is one native service an agent's sbxenv declares: the binding's domains and the

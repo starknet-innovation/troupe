@@ -144,7 +144,7 @@ main() {
     *) say "add $bin_dir to your PATH (for example in ~/.profile) to run troupe by name" ;;
   esac
   if [ -z "$previous" ]; then
-    say "done. Next: troupe create coder --name NAME"
+    say "done. Next: troupe create TYPE --name NAME (troupe create --help)"
   else
     say "done. $("$target" version) replaced ${was:-the previous troupe}"
   fi

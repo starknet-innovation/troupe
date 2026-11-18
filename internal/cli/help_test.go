@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"os"
 	"path/filepath"
@@ -31,7 +32,7 @@ func TestHelpListsOnlyUserCommands(t *testing.T) {
 	}
 	want := "chat config create delete doctor guard reset resize restart secret start stop update upgrade version"
 	if devBuild {
-		want = "agents budget chat config create delete doctor guard harvest reseed reset resize restart secret start stop storage update upgrade version"
+		want = "agents budget chat config create delete doctor guard harvest kit reseed reset resize restart secret start stop storage update upgrade version"
 	}
 	if got := strings.Join(names, " "); got != want {
 		t.Fatalf("listed: %s", got)
@@ -76,11 +77,13 @@ func TestGatewayStopIgnoresABrokenSettingsFile(t *testing.T) {
 // Every command and subcommand of this build answers --help on stdout, within the width, and
 // every flag it defines is described (subcommand refuses one that is not).
 func TestEveryHelpFitsAndDescribesItsFlags(t *testing.T) {
-	forms := [][]string{{}, {"create", "coder"}, {"create", "bouncer"}, {"create", "hermes"}, {"secret", "set"}, {"secret", "check"},
+	// A docker that fails: a type's help reads no registry here, and says so within the width.
+	home(t)
+	forms := [][]string{{}, {"create", "hermes"}, {"secret", "set"}, {"secret", "check"},
 		{"config", "get"}, {"guard", "probe"}, {"guard", "check"}, {"units", "render"}, {"gateway", "stop"}}
 	if devBuild {
 		forms = append(forms, []string{"agents", "list"}, []string{"agents", "show"}, []string{"reseed", "skills"}, []string{"budget", "check"},
-			[]string{"storage", "check"})
+			[]string{"storage", "check"}, []string{"kit", "label"})
 	}
 	for _, c := range commandList {
 		forms = append(forms, []string{c.name})
@@ -98,31 +101,60 @@ func TestEveryHelpFitsAndDescribesItsFlags(t *testing.T) {
 	}
 }
 
-// Each type has its own create help with its own sizes and questions; create's lists the types.
-func TestCreateHelpIsPerType(t *testing.T) {
-	_, coder, _ := run("create", "coder", "--help")
-	_, hermes, _ := run("create", "--name", "x", "hermes", "-h")
-	_, bouncer, _ := run("create", "bouncer", "--help")
-	_, short, _ := run("create", "--help")
-	for _, want := range []string{"Default: 8.", "Default: 100.", "  organizations ", "  manager "} {
-		if !strings.Contains(coder, want) {
-			t.Errorf("coder lacks %q:\n%s", want, coder)
+// create's own help is for any type and documents every flag; a type's help is its kit's: the
+// sizes, the description and the questions of its latest label, read from the registry without
+// a pull. A registry that cannot be read leaves create's own help, with the reason.
+func TestCreateHelpIsTheKits(t *testing.T) {
+	_, bin := home(t)
+	if code, _, errs := run("config", "set", "registry", "ghcr.io/example"); code != 0 {
+		t.Fatal(errs)
+	}
+	sizes := `"defaults":{"cpus":8,"memory_gib":12,"root_gib":100,"docker_gib":20}`
+	coder := `{"format":1,` + sizes + `,"settings":[{"env":"GITHUB_ORGANIZATIONS","prompt":"GitHub organizations it may work in","pattern":"x"}],"services":[` +
+		`{"name":"venice","prompt":"Venice API key","required":true,"delivery":"native","domains":["api.venice.ai"]},` +
+		`{"name":"slack-bot","prompt":"Slack bot token (xoxb-…)","required":true,"slack":true,"delivery":"placeholder","env":"SLACK_BOT_TOKEN","hosts":["slack.com"],"placeholder":"p-{agent}"},` +
+		`{"name":"extra","prompt":"An extra key.","delivery":"native","domains":["api.example.com"]}]}`
+	labels, _ := json.Marshal(map[string]string{published.LabelName: coder, "org.opencontainers.image.description": "A coding agent."})
+	os.WriteFile(filepath.Join(bin, "labels"), labels, 0o644)
+	os.WriteFile(filepath.Join(bin, "docker"), []byte("#!/bin/sh\necho \"docker $*\" >> \""+bin+"/calls\"\n"+
+		"[ \"$1\" = buildx ] && [ -f \""+bin+"/labels\" ] && exec cat \""+bin+"/labels\"\nexit 1\n"), 0o755)
+
+	code, out, errs := run("create", "coder", "--help")
+	if code != 0 || errs != "" {
+		t.Fatalf("exit %d: %s", code, errs)
+	}
+	for _, want := range []string{"Create a new coder agent", "Default: 8.", "Default: 12.", "Default: 100.", "Default: 20.", "The kit: A coding agent.",
+		"  GITHUB_ORGANIZATIONS  GitHub organizations it may work in. Optional.", "  venice                Venice API key. Required.",
+		"  slack-bot             Slack bot token (xoxb-…). Required.", "  manager ", "  extra                 An extra key. Optional."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("coder's help lacks %q:\n%s", want, out)
 		}
 	}
-	for _, want := range []string{"Default: 6.", "Default: 50.", "  venice "} {
-		if !strings.Contains(hermes, want) || strings.Contains(hermes, "Slack member") {
-			t.Errorf("hermes help lacks %q or names Slack:\n%s", want, hermes)
-		}
+	if strings.Index(out, "  slack-bot ") > strings.Index(out, "  manager ") || strings.Index(out, "  manager ") > strings.Index(out, "  extra ") {
+		t.Errorf("the manager comes right after the last Slack service:\n%s", out)
 	}
-	for _, want := range []string{"Default: 2.", "Default: 30.", "  organizations ", "  manager ", "bouncer's own account"} {
-		if !strings.Contains(bouncer, want) || strings.Contains(bouncer, "starkscan") {
-			t.Errorf("bouncer help lacks %q or asks for Starkscan:\n%s", want, bouncer)
-		}
+	calls, _ := os.ReadFile(filepath.Join(bin, "calls"))
+	if !strings.Contains(string(calls), "docker buildx imagetools inspect ghcr.io/example/coder:latest ") || strings.Contains(string(calls), "pull") {
+		t.Fatalf("calls:\n%s", calls)
 	}
-	if !strings.Contains(short, "coder, bouncer or hermes") || !strings.Contains(short, "troupe create bouncer --help") ||
-		!strings.Contains(short, "troupe create hermes --help") ||
-		strings.Contains(short, "--memory") {
-		t.Errorf("short help:\n%s", short)
+
+	// A registry that cannot be read: create's own help, and why. Help never fails.
+	os.Remove(filepath.Join(bin, "labels"))
+	code, out, errs = run("create", "--name", "x", "nosuchtype", "-h")
+	if code != 0 || errs != "" || !strings.Contains(out, "nosuchtype's own sizes and questions are not shown: ghcr.io/example/nosuchtype could not be read") ||
+		!strings.Contains(out, "  --memory GiB|max ") || !strings.Contains(out, "Default: the kit's.") {
+		t.Fatalf("exit %d: %s%s", code, out, errs)
+	}
+
+	// create's own help asks no registry.
+	os.Remove(filepath.Join(bin, "calls"))
+	code, out, _ = run("create", "--help")
+	if code != 0 || !strings.Contains(out, "create TYPE --name NAME") || !strings.Contains(out, "  --memory GiB|max ") ||
+		!strings.Contains(out, "troupe create TYPE --help") || strings.Contains(out, "coder") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(bin, "calls")); err == nil {
+		t.Fatal("create --help ran docker")
 	}
 }
 
@@ -139,50 +171,21 @@ func TestAnUndocumentedFlagIsRefused(t *testing.T) {
 	}
 }
 
-// The type whose help is shown is the first positional argument, never a flag's value.
+// The type whose help is shown is the first positional argument, never a flag's value, and only
+// a name that can be a kit's.
 func TestTypeHelpIsTheFirstPositional(t *testing.T) {
 	for args, want := range map[string]string{
 		"--name coder hermes -h": "hermes", "coder --help": "coder", "--name=x hermes -h": "hermes",
-		"--force coder -h": "coder", "bouncer -h": "bouncer",
+		"--force coder -h": "coder", "my-new-type -h": "my-new-type",
 	} {
 		got, ok := typeHelpRequested(strings.Fields(args))
-		if !ok || got.Name != want {
-			t.Errorf("%s: %q %v", args, got.Name, ok)
+		if !ok || got != want {
+			t.Errorf("%s: %q %v", args, got, ok)
 		}
 	}
-	if _, ok := typeHelpRequested([]string{"coder", "--name", "x"}); ok {
-		t.Error("help without -h")
-	}
-}
-
-// create notices a pulled kit that no longer matches its type's help: sizes, order, or a value
-// that turned optional; the manager comes right after the last Slack service.
-func TestAKitThatNoLongerMatchesItsTypeIsNoticed(t *testing.T) {
-	kit := t.TempDir()
-	write := func(services string) {
-		os.WriteFile(filepath.Join(kit, "services.json"), []byte(`{"services":[`+services+`]}`), 0o644)
-	}
-	venice := `{"name":"venice","prompt":"V","required":true,"delivery":"native","domains":["api.venice.ai"]}`
-	hermes, _ := published.TypeNamed("hermes")
-	write(venice)
-	asks, err := kitAsks(kit, nil)
-	if err != nil || hermes.Differs(hermes.Defaults, asks) {
-		t.Fatalf("%v %v", asks, err)
-	}
-	if !hermes.Differs(published.Defaults{CPUs: 4, MemoryGiB: 8, RootGiB: 50, DockerGiB: 10}, asks) {
-		t.Error("other sizes unnoticed")
-	}
-	write(strings.Replace(venice, `"required":true`, `"required":false`, 1))
-	if asks, _ := kitAsks(kit, nil); !hermes.Differs(hermes.Defaults, asks) {
-		t.Error("an optional key unnoticed")
-	}
-	write(`{"name":"slack-bot","prompt":"B","required":true,"slack":true,"delivery":"placeholder","env":"SLACK_BOT_TOKEN","hosts":["slack.com"],"placeholder":"p-{agent}"},` + venice)
-	asks, _ = kitAsks(kit, []published.Setting{{Env: "TEAM"}})
-	var names []string
-	for _, a := range asks {
-		names = append(names, a.Name)
-	}
-	if strings.Join(names, ",") != "TEAM,slack-bot,manager,venice" {
-		t.Errorf("order %v", names)
+	for _, args := range []string{"coder --name x", "--help", "../x --help", "--name coder -h"} {
+		if got, ok := typeHelpRequested(strings.Fields(args)); ok {
+			t.Errorf("%s: help for %q", args, got)
+		}
 	}
 }

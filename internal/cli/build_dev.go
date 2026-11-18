@@ -18,6 +18,7 @@ var devEntries = []entry{
 	{"agents", "list the agents in the kits root and show their kits and seeds", agents, false},
 	{"budget", "check this machine has room for a new sandbox", budgetCommand, false},
 	{"harvest", "collect an agent's own skill edits before they are replaced (read only)", harvestCommand, false},
+	{"kit", "check a kit's source folder and print the label its image must carry", kitCommand, false},
 	{"storage", "check a sandbox's disks and mounts against its declared storage", storageCommand, false},
 	{"reseed", "make an agent's skills, scripts or SOUL.md match the seeds", reseedCommand, false},
 }

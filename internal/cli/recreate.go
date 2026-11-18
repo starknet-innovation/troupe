@@ -1,14 +1,17 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/starknet-innovation/troupe/internal/agent"
 	"github.com/starknet-innovation/troupe/internal/budget"
@@ -19,74 +22,111 @@ import (
 	"github.com/starknet-innovation/troupe/internal/secret"
 )
 
-// createHelp is create's own help: the types, each with a help of its own (createTypeHelp).
-var createHelp = help.Render(help.Command{
-	Summary:  "Create a new agent from the latest published kit of its type, and start it.",
-	Usage:    []string{"create TYPE --name NAME [flags]"},
-	Args:     []help.Arg{{Name: "TYPE", Desc: "The agent type: " + typeList() + " (see Types)."}},
-	Sections: []help.Section{{Title: "Types", Rows: typeRows()}},
-})
+// createHelp is create's help for any type: troupe knows no type itself, so the sizes and the
+// questions are the kit's (createTypeHelp shows one type's).
+var createHelp = renderCreateHelp("TYPE", "", nil, nil)
 
-// createTypeHelp is one type's create help: its sizes, its SOUL and what create asks for.
-func createTypeHelp(t published.Type) string {
-	d := t.Defaults
-	var asks []help.Row
-	for _, a := range t.Asks {
+// anyTypeNotes say where the types are, since troupe lists none.
+var anyTypeNotes = []string{
+	"TYPE is a kit in this machine's registry (troupe config get registry), such as hermes.",
+	"troupe create TYPE --help shows that type's sizes and what it asks for, read from the registry.",
+}
+
+// renderCreateHelp is create's help: for one type when kit is its label, with its sizes as the
+// defaults, what create asks for and the kit's own description (summary); otherwise for any type.
+func renderCreateHelp(typ, summary string, kit *published.Kit, notes []string) string {
+	cpus, memory, root, dockerDisk := "the kit's", "the kit's", "the kit's", "the kit's"
+	c := help.Command{
+		Summary: "Create a new agent from the latest published kit of its type, and start it.",
+		Usage:   []string{"create " + typ + " --name NAME [flags]"},
+	}
+	if kit == nil {
+		c.Args = []help.Arg{{Name: "TYPE", Desc: "The agent type: the name of a kit in the registry."}}
+		notes = append(notes, anyTypeNotes...)
+	} else {
+		d := kit.Defaults
+		cpus, memory, root, dockerDisk = strconv.Itoa(d.CPUs), strconv.Itoa(d.MemoryGiB), strconv.Itoa(d.RootGiB), strconv.Itoa(d.DockerGiB)
+		c.Summary = "Create a new " + typ + " agent from the latest " + typ + " kit, and start it."
+		if summary != "" {
+			notes = append([]string{"The kit: " + summary}, notes...)
+		}
+		c.Sections = []help.Section{{Title: "Asks for, in order", Rows: askRows(*kit)}}
+	}
+	c.Flags = []help.Flag{
+		{Name: "name", Value: "NAME", Desc: "The agent's name, kept as typed (at most 35 characters).", Required: true},
+		{Name: "cpu", Value: "N|max", Desc: "CPUs; max is all this machine has.", Default: cpus},
+		{Name: "memory", Value: "GiB|max", Desc: "Memory in GiB; max is all that is left after the host's reserve and the VM's overhead.", Default: memory},
+		{Name: "storage", Value: "GiB|max", Desc: "Root disk in GiB; max is the free disk left (after 10% kept free) once the Docker disk is set.", Default: root},
+		{Name: "docker", Value: "GiB|max", Desc: "Docker disk (images, build cache) in GiB; with --storage max too, the free disk is split in the default sizes' ratio.", Default: dockerDisk},
+		{Name: "soul", Value: "FILE", Desc: "The agent's SOUL.md.", Default: "the kit's, or Hermes's own when the kit has none"},
+		{Name: "avatar", Value: "PATH|URL", Desc: "Profile picture: a PNG or JPEG file, or an https address.", Default: "none"},
+		{Name: "force", Desc: "Create even over the machine's resource budget.", Default: "ask"},
+	}
+	c.Notes = append(append([]string{}, notes...),
+		"Asks for sudo first.",
+		"The first time, also asks for a registry token when the registry needs one to read the kits.",
+		"If it stops partway, run it again: it resumes.",
+	)
+	return help.Render(c)
+}
+
+// askRows is what create asks for, in order, as the kit words it: its settings, its services,
+// and the Slack manager after its last Slack service.
+func askRows(kit published.Kit) []help.Row {
+	sentence := func(text, state string) string {
+		text = strings.TrimSpace(text)
+		if !strings.HasSuffix(text, ".") {
+			text += "."
+		}
+		return text + " " + state
+	}
+	var rows []help.Row
+	for _, s := range kit.Settings {
+		rows = append(rows, help.Row{Name: s.Env, Desc: sentence(s.Prompt, "Optional.")})
+	}
+	lastSlack := -1
+	for i, s := range kit.Services {
+		if s.Slack {
+			lastSlack = i
+		}
+	}
+	for i, s := range kit.Services {
 		state := "Required."
-		if a.Optional {
+		if !s.Required {
 			state = "Optional."
 		}
-		label := a.Label
-		if label == "" {
-			label = a.Name
+		rows = append(rows, help.Row{Name: s.Name, Desc: sentence(s.Prompt, state)})
+		if i == lastSlack {
+			rows = append(rows, help.Row{Name: "manager", Desc: "The manager's Slack member ID (U…), usually yours. Required."})
 		}
-		asks = append(asks, help.Row{Name: label, Desc: a.Desc + " " + state})
-	}
-	return help.Render(help.Command{
-		Summary: "Create a new " + t.Name + " agent from the latest " + t.Name + " kit, and start it.",
-		Usage:   []string{"create " + t.Name + " --name NAME [flags]"},
-		Flags: []help.Flag{
-			{Name: "name", Value: "NAME", Desc: "The agent's name, kept as typed (at most 35 characters).", Required: true},
-			{Name: "cpu", Value: "N|max", Desc: "CPUs; max is all this machine has.", Default: strconv.Itoa(d.CPUs)},
-			{Name: "memory", Value: "GiB|max", Desc: "Memory in GiB; max is all that is left after the host's reserve and the VM's overhead.", Default: strconv.Itoa(d.MemoryGiB)},
-			{Name: "storage", Value: "GiB|max", Desc: "Root disk in GiB; max is the free disk left (after 10% kept free) once the Docker disk is set.", Default: strconv.Itoa(d.RootGiB)},
-			{Name: "docker", Value: "GiB|max", Desc: "Docker disk (images, build cache) in GiB; with --storage max too, the free disk is split in the default sizes' ratio.", Default: strconv.Itoa(d.DockerGiB)},
-			{Name: "soul", Value: "FILE", Desc: "The agent's SOUL.md.", Default: t.Soul},
-			{Name: "avatar", Value: "PATH|URL", Desc: "Profile picture: a PNG or JPEG file, or an https address.", Default: "none"},
-			{Name: "force", Desc: "Create even over the machine's resource budget.", Default: "ask"},
-		},
-		Sections: []help.Section{{Title: "Asks for, in order", Rows: asks}},
-		Notes: []string{
-			"Asks for sudo first.",
-			"The first time, also asks for a registry token that can read the kits.",
-			"If it stops partway, run it again: it resumes.",
-		},
-	})
-}
-
-// typeList is the types as help names them: "coder, bouncer or hermes".
-func typeList() string {
-	var names []string
-	for _, t := range published.Types {
-		names = append(names, t.Name)
-	}
-	if len(names) < 2 {
-		return strings.Join(names, "")
-	}
-	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
-}
-
-func typeRows() []help.Row {
-	var rows []help.Row
-	for _, t := range published.Types {
-		rows = append(rows, help.Row{Name: t.Name, Desc: t.Summary + " Help: troupe create " + t.Name + " --help."})
 	}
 	return rows
 }
 
+// createTypeHelp is one type's create help, from its latest kit's label in the registry, read
+// without pulling the kit. A registry or a kit that cannot be read leaves create's own help,
+// with the reason: help never fails.
+func createTypeHelp(e env, typ string) string {
+	unread := func(why string) string {
+		return renderCreateHelp("TYPE", "", nil, []string{typ + "'s own sizes and questions are not shown: " + why + "."})
+	}
+	machine, err := config.LoadMachine()
+	if err != nil {
+		return unread("this machine's settings could not be read")
+	}
+	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+	defer cancel()
+	repository := machine.Registry + "/" + typ
+	kit, description, err := published.Docker{Log: io.Discard}.Describe(ctx, repository+":latest")
+	if err != nil {
+		return unread(repository + " could not be read (" + err.Error() + ")")
+	}
+	return renderCreateHelp(typ, description, &kit, nil)
+}
+
 // typeHelpRequested is the type whose help "create TYPE --help" asks for: the first positional
 // argument, never a flag's value.
-func typeHelpRequested(args []string) (published.Type, bool) {
+func typeHelpRequested(args []string) (string, bool) {
 	asked, first := false, ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -101,13 +141,12 @@ func typeHelpRequested(args []string) (published.Type, bool) {
 			first = a
 		}
 	}
-	t, ok := published.TypeNamed(first)
-	return t, ok && asked
+	return first, asked && kitType(first)
 }
 
 func createCommand(e env, args []string) int {
-	if t, ok := typeHelpRequested(args); ok {
-		fmt.Fprint(e.out, createTypeHelp(t))
+	if typ, ok := typeHelpRequested(args); ok {
+		fmt.Fprint(e.out, createTypeHelp(e, typ))
 		return 0
 	}
 	var f createFlags

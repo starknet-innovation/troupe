@@ -8,11 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/starknet-innovation/troupe/internal/budget"
 )
-
-const gib = int64(1) << 30
 
 // ready is a machine that passes every check: fake device files, a 32 GiB, 8 core machine
 // with 500 GiB free, and programs that answer like this host's.
@@ -39,10 +35,6 @@ func ready(t *testing.T) Host {
 	}
 	return Host{
 		Arch: "amd64", KVM: filepath.Join(dir, "kvm"),
-		Budget: budget.Paths{Sandboxd: filepath.Join(dir, "missing/sandboxd")},
-		Measure: func(budget.Paths) budget.Host {
-			return budget.Host{Memory: 32 * gib, Cores: 8, DiskFree: 500 * gib, DiskSize: 1000 * gib}
-		},
 		Run: func(name string, args ...string) (string, error) {
 			out, ok := answers[strings.Join(append([]string{name}, args...), " ")]
 			if !ok {
@@ -71,7 +63,7 @@ func TestAReadyMachinePassesEveryCheck(t *testing.T) {
 			t.Errorf("%s: %d %s", l.Name, l.Level, l.Message)
 		}
 	}
-	if len(lines) != 10 || Failed(lines) {
+	if len(lines) != 9 || Failed(lines) {
 		t.Fatalf("lines %v", lines)
 	}
 }
@@ -83,10 +75,9 @@ func TestMissingHardwareFails(t *testing.T) {
 		break_ func(*Host)
 		want   string
 	}{
-		"an arm CPU":        {"cpu", func(h *Host) { h.Arch = "arm64" }, "x86_64"},
-		"no KVM":            {"kvm", func(h *Host) { os.Remove(h.KVM) }, "virtualization"},
-		"KVM not yours":     {"kvm", func(h *Host) { os.Chmod(h.KVM, 0) }, "kvm group"},
-		"unreadable memory": {"room", func(h *Host) { h.Measure = fixed(budget.Host{Cores: 8, DiskFree: 500 * gib, DiskSize: 1000 * gib}) }, "could not be read"},
+		"an arm CPU":    {"cpu", func(h *Host) { h.Arch = "arm64" }, "x86_64"},
+		"no KVM":        {"kvm", func(h *Host) { os.Remove(h.KVM) }, "virtualization"},
+		"KVM not yours": {"kvm", func(h *Host) { os.Chmod(h.KVM, 0) }, "kvm group"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if name == "KVM not yours" && os.Geteuid() == 0 {
@@ -110,43 +101,6 @@ func TestMissingHardwareFails(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// A machine too small for a coder agent at its default size is a note, never a failure: create
-// checks each agent's own sizes, so a smaller agent may still fit (4 and 5 CPUs are below the
-// coder default of 8 and still hold a 4 CPU agent).
-func TestNoRoomForADefaultCoderIsANote(t *testing.T) {
-	for name, c := range map[string]struct {
-		host budget.Host
-		want string
-	}{
-		"too little memory": {budget.Host{Memory: 8 * gib, Cores: 8, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "memory"},
-		"two CPUs":          {budget.Host{Memory: 32 * gib, Cores: 2, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "CPUs"},
-		"four CPUs":         {budget.Host{Memory: 32 * gib, Cores: 4, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "CPUs"},
-		"five CPUs":         {budget.Host{Memory: 32 * gib, Cores: 5, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "CPUs"},
-		"seven CPUs":        {budget.Host{Memory: 32 * gib, Cores: 7, DiskFree: 500 * gib, DiskSize: 1000 * gib}, "CPUs"},
-		"too little disk":   {budget.Host{Memory: 32 * gib, Cores: 8, DiskFree: 100 * gib, DiskSize: 1000 * gib}, "Disk"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			h := ready(t)
-			h.Measure = fixed(c.host)
-			lines := Check(h)
-			var got Line
-			for _, l := range lines {
-				if l.Name == "room" {
-					got = l
-				}
-			}
-			if got.Level != Note || !strings.Contains(got.Message, c.want) || !strings.Contains(got.Message, "own sizes") || Failed(lines) {
-				t.Fatalf("%+v", got)
-			}
-		})
-	}
-	h := ready(t)
-	h.Measure = fixed(budget.Host{Memory: 32 * gib, Cores: 8, DiskFree: 500 * gib, DiskSize: 1000 * gib})
-	if got := levels(Check(h)); got["room"] != OK {
-		t.Fatalf("eight CPUs hold the coder default: %v", got)
 	}
 }
 
@@ -188,7 +142,7 @@ func TestMissingSoftwareWarns(t *testing.T) {
 	}
 	h = ready(t)
 	h.Units = func() error { return errors.New("sbx-daemon.service is not installed: run the installer again") }
-	if lines := Check(h); levels(lines)["units"] != Warn || !strings.Contains(lines[9].Message, "run the installer again") {
+	if lines := Check(h); levels(lines)["units"] != Warn || !strings.Contains(lines[8].Message, "run the installer again") {
 		t.Fatalf("units: %v", lines)
 	}
 }
@@ -208,7 +162,7 @@ func TestSignedOutAsksForSbxLogin(t *testing.T) {
 			h := ready(t)
 			signOut(&h)
 			lines := Check(h)
-			if levels(lines)["sign-in"] != Warn || Failed(lines) || !strings.Contains(lines[7].Message, "sbx login") {
+			if levels(lines)["sign-in"] != Warn || Failed(lines) || !strings.Contains(lines[6].Message, "sbx login") {
 				t.Fatalf("%v", lines)
 			}
 		})
@@ -312,10 +266,6 @@ func TestKeysLineNamesTheTier(t *testing.T) {
 	}
 }
 
-func fixed(h budget.Host) func(budget.Paths) budget.Host {
-	return func(budget.Paths) budget.Host { return h }
-}
-
 // An older systemd is worth knowing, but troupe may still work on it: a note, never in the way.
 func TestAnOlderSystemdIsANote(t *testing.T) {
 	h := ready(t)
@@ -328,23 +278,6 @@ func TestAnOlderSystemdIsANote(t *testing.T) {
 	}
 	if got := levels(Check(h)); got["systemd"] != Note {
 		t.Fatalf("%v", got)
-	}
-}
-
-// The room check is an empty machine's: what existing sandboxes hold or may still grow is
-// create's to weigh. It measures the nearest folder that exists when the daemon's does not yet.
-func TestRoomIsAnEmptyMachines(t *testing.T) {
-	h := ready(t)
-	var measured string
-	h.Measure = func(p budget.Paths) budget.Host {
-		measured = p.Sandboxd
-		return budget.Host{Memory: 32 * gib, Cores: 8, DiskFree: 500 * gib, DiskSize: 1000 * gib, DiskGrowth: 800 * gib, SandboxdRSS: 20 * gib}
-	}
-	if got := levels(Check(h)); got["room"] != OK {
-		t.Fatalf("%v", got)
-	}
-	if want := filepath.Dir(filepath.Dir(h.Budget.Sandboxd)); measured != want {
-		t.Fatalf("measured %s, want %s", measured, want)
 	}
 }
 

@@ -1,0 +1,2 @@
+# Every agent of this type starts its .env with these lines; troupe adds its Slack manager and its settings.
+SLACK_ALLOW_BOTS=none

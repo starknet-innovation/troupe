@@ -49,7 +49,6 @@ stops it):
 |---|---|---|
 | Hardware | an x86_64 CPU | fails |
 | Hardware | KVM (`/dev/kvm`) usable by you | fails |
-| Hardware | room for a coder agent at its default size (8 CPUs, 12 GiB memory, 120 GiB disk) beyond the reserves | noted; `create` checks each agent's own sizes, so a smaller one may still fit |
 | Keys | how keys will be kept, strongest available ([key protection](#key-protection)) | noted below a TPM; `create` asks |
 | Software | systemd (one older than 259, the version troupe is tested on, is noted) | asks for your action |
 | Software | Docker with buildx | asks for your action |
@@ -66,13 +65,15 @@ troupe create hermes --name jane
 ```
 
 creates a new agent from the latest published kit of an agent type, with no kits checkout.
-The types are `coder`, `bouncer` (screens outsiders' GitHub text for coder agents) and `hermes`; `troupe create TYPE --help` shows each one's sizes and what it asks for.
+troupe knows no type itself: TYPE is the name of any kit the registry holds (`hermes`, `coder` and `bouncer` in the default one), so a newly published kit is a new type with no troupe release. `troupe create TYPE --help` shows that type's sizes and what it asks for, read from the registry without pulling the kit. Room for the agent is checked here, against its kit's sizes, before any key is asked.
 First it makes sure sbx accepts kits from `REGISTRY/` (a fresh sbx allows only `docker.io/`): it adds
 that prefix to sbx's `kit.allowedSources`, keeping every entry there, which admits no other kits on
 the same host. troupe pulls `REGISTRY/TYPE:latest` (the `registry` machine setting) and pins the version it
 names: the agent is composed from `REGISTRY/TYPE:VERSION`, whose tag never moves, never from
-`latest`, so a later version changes it only when you run `troupe upgrade`. It keeps that kit's `/usr/share/troupe/` files (the services the type
-needs, its default sizes and SOUL, its tools and a copy of its seeds) in troupe's data folder,
+`latest`, so a later version changes it only when you run `troupe upgrade`. It reads the kit's label
+([the kit's label](#the-kits-label): the services the type needs, its settings and its default
+sizes) from the image it pinned, and keeps that with the kit's `/usr/share/troupe/` files (its
+default SOUL, its tools and a copy of its seeds) in troupe's data folder,
 asks for each service's key in the kit's order, after the kit's line on what the key is and
 where to get it (hidden; Enter skips an optional one), and stores
 it as strongly as the machine allows ([key protection](#key-protection)), writes the agent's environment to `~/.local/share/troupe/agents/NAME/`
@@ -114,7 +115,7 @@ checks only the new VM's side and does not probe them again: run `troupe reset` 
 set later. A kit's `env` file (`coder`'s) starts the agent's
 `.env`.
 
-**Kit settings.** A kit may also declare settings (`settings.json`): values that are not keys,
+**Kit settings.** A kit may also declare settings in its label: values that are not keys,
 which `create` asks for before the keys, shown as typed, each after the kit's line on what it is.
 Every one is optional (Enter leaves it empty), and an answer must have the form the kit declares.
 Each answer becomes one line of the agent's `.env`, after the Slack lines. Like the Slack
@@ -167,7 +168,27 @@ troupe checks by reading the kit's manifest with an empty Docker configuration. 
 registry needs one token that can read the kits (on GitHub, a classic token with
 `read:packages`). sbx pulls the VM's image only with its own registry credential, and troupe
 reads the kit through Docker, so the first `create` asks for the token once and stores it in
-both (`sbx secret set --registry`, `docker login`), each on stdin.
+both (`sbx secret set --registry`, `docker login`), each on stdin. A registry answers alike for a
+kit it does not hold and one a login may not read, so a mistyped type looks refused too: when
+Docker already holds a login the registry accepts, `create` stops there ("no REGISTRY/TYPE kit,
+or this machine's Docker login cannot read it") and never asks for a token, so a working login
+is never replaced; when that login is real but may not read the kits, run `docker logout HOST`
+and create again to be asked for one that can. With no such login, `create` cannot tell the two
+apart and asks for a token, saying first that the kit may not exist.
+
+### The kit's label
+
+A kit tells troupe what `create` asks for and allocates in one image label,
+`org.host.troupe.kit`: a JSON document with a `format` number, the default sizes (`defaults`),
+the settings (`settings`) and the services (`services`). troupe owns that format, and its dev
+build's `troupe kit label DIR` is the label's only producer and a kit's check before it is
+published ([development](docs/development.md)). Reading is tolerant and publishing is strict:
+`create` skips a field it does not know, so a kit may add one without locking out installed
+troupes, while `troupe kit label` refuses one. `format` grows only for a change an older troupe
+must not ignore: a kit in a newer format is refused with "run `troupe update`", and a kit with
+no label (published before the label existed) is refused as too old, for `create` and as the
+target of an `upgrade`. An agent already on such a kit keeps working (`reset`, `resize`,
+`secret`), from the files troupe kept when it was created.
 
 ## Resetting and resizing
 
@@ -195,7 +216,7 @@ as in every command, only confirms an agent over the machine's budget.
 `troupe secret set AGENT SERVICE` asks for a key without showing it, stores it at the agent's
 [key protection](#key-protection) and gives the agent's sandbox access to it; `troupe secret
 check AGENT` proves every key stored, readable by sandboxd and wired, without reading one. An agent's
-services are those its kit declares (`services.json`): native ones, which sbx injects for the
+services are those its kit's label declares: native ones, which sbx injects for the
 hosts named, and placeholders, which the agent sees as a stand-in value that sbx replaces on
 the way out.
 
@@ -246,9 +267,15 @@ answers, files, logs, names. troupe holds these lines:
   agent, like `sbx exec -it`, so the chat's bytes reach the terminal raw. It runs only for an
   agent that is already running.
 - A published kit is the publisher's, trusted because the operator chose the
-  registry. Its files still reach the host only as a size-capped stream of plain files and
-  folders, none outside troupe's folder for that kit, and an agent is pinned to the version it
-  was created from until you run `troupe upgrade`.
+  registry: troupe lists no types of its own, so the `registry` setting is the one gate on what
+  `create` can make, and whoever can push to it decides what an agent's keys reach. Its files
+  still reach the host only as a size-capped stream of plain files and folders, none outside
+  troupe's folder for that kit, and its label only as a size-capped JSON document, decoded into
+  typed values with counted lists and checked whole before any file is copied out. A type's
+  name is one path component of lowercase letters, digits and hyphens. What `create TYPE
+  --help` reads from the registry is shown and never acted on: `create` reads the label again
+  from the image it pinned and pulled. An agent is pinned to the version it was created from
+  until you run `troupe upgrade`.
 
 ## Build
 
