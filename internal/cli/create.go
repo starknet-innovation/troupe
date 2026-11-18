@@ -156,6 +156,11 @@ func createPublished(e env, typ string, f createFlags) int {
 	host, _, _ := strings.Cut(machine.Registry, "/")
 	printer.Print("kit", progress.Started, "Finding the latest "+repository+" kit")
 	img, err := resolve(e, printer, docker, runner, repository, host)
+	var noKit published.NoKitError
+	if errors.As(err, &noKit) {
+		// Here the type was typed, so a kit the registry does not hold is most likely a typo.
+		return report("kit", fmt.Errorf("%v: check the type's name (%s)", err, typ))
+	}
 	if err != nil {
 		return report("kit", err)
 	}

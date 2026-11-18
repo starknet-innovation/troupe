@@ -168,8 +168,10 @@ troupe checks by reading the kit's manifest with an empty Docker configuration. 
 registry needs one token that can read the kits (on GitHub, a classic token with
 `read:packages`). sbx pulls the VM's image only with its own registry credential, and troupe
 reads the kit through Docker, so the first `create` asks for the token once and stores it in
-both (`sbx secret set --registry`, `docker login`), each on stdin. A registry answers alike for a
-kit it does not hold and one a login may not read, so a mistyped type looks refused too: when
+both (`sbx secret set --registry`, `docker login`), each on stdin. When the registry says it
+holds no such kit, which GitHub's does for a login that may read there, `create` says so ("the
+registry holds no REGISTRY/TYPE kit: check the type's name"). To anyone else GitHub's answers
+alike for a kit it does not hold and one a login may not read, so a mistyped type looks refused too: when
 Docker already holds a login the registry accepts, `create` stops there ("no REGISTRY/TYPE kit,
 or this machine's Docker login cannot read it") and never asks for a token, so a working login
 is never replaced; when that login is real but may not read the kits, run `docker logout HOST`

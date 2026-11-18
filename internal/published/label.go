@@ -222,7 +222,9 @@ func decodeForError(reference string, err error) error {
 func (d Docker) Describe(ctx context.Context, reference string) (Kit, string, error) {
 	out := &capped{limit: 4 * labelLimit}
 	if _, err := d.run(ctx, time.Minute, out, "buildx", "imagetools", "inspect", reference, "--format",
-		"{{json .Image.Config.Labels}}"); err != nil {
+		"{{json .Image.Config.Labels}}"); errors.Is(err, ErrMissing) {
+		return Kit{}, "", errors.New("the registry holds no such kit: check the type's name")
+	} else if err != nil {
 		return Kit{}, "", err
 	}
 	var labels map[string]string

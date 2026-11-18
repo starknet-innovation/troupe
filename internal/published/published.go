@@ -41,6 +41,15 @@ type Image struct {
 // ErrAccess means the registry refused this machine's Docker login (or there is none).
 var ErrAccess = errors.New("registry_access_refused")
 
+// ErrMissing means the registry said it holds no such kit, or no such version of one. It says so
+// only to a login that may read there: to anyone else a missing kit looks refused (ErrAccess).
+var ErrMissing = errors.New("kit_not_found")
+
+// NoKitError is Resolve's error for a repository the registry says it does not hold.
+type NoKitError struct{ Repository string }
+
+func (e NoKitError) Error() string { return "the registry holds no " + e.Repository + " kit" }
+
 // Where a kit keeps what troupe reads, and what it holds.
 const (
 	troupeFiles = "/usr/share/troupe"
@@ -81,6 +90,10 @@ func (d Docker) run(ctx context.Context, timeout time.Duration, out io.Writer, a
 		return "", ctx.Err()
 	}
 	if err != nil {
+		// Before the refusals: a reference may hold what a refusal looks like (a version 1.403.0).
+		if missing(args, stderr.String()) {
+			return "", ErrMissing
+		}
 		if refused.Match(stderr.Bytes()) {
 			return "", ErrAccess
 		}
@@ -89,11 +102,34 @@ func (d Docker) run(ctx context.Context, timeout time.Duration, out io.Writer, a
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// missing reports whether Docker said the registry does not hold a reference this read named: a
+// line ending "REFERENCE: not found", which docker pull and buildx both print (measured on
+// ghcr.io, 2026-11-18). Only that exact reference counts: other failures end in "not found" too
+// (no image for this platform, a layer the registry lost).
+func missing(args []string, stderr string) bool {
+	if args[0] != "pull" && args[0] != "buildx" {
+		return false
+	}
+	for _, reference := range args[1:] {
+		if !strings.Contains(reference, "/") {
+			continue
+		}
+		for _, line := range strings.Split(stderr, "\n") {
+			if strings.HasSuffix(strings.TrimSpace(line), reference+": not found") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Resolve pulls repository:latest (REGISTRY/TYPE), reads the kit and Hermes versions its
 // labels name, and pins that version's own tag, which never moves: it pulls REGISTRY/TYPE:VERSION.
 func (d Docker) Resolve(ctx context.Context, repository string) (Image, error) {
 	latest := repository + ":latest"
-	if _, err := d.run(ctx, 60*time.Minute, nil, "pull", "--quiet", latest); err != nil {
+	if _, err := d.run(ctx, 60*time.Minute, nil, "pull", "--quiet", latest); errors.Is(err, ErrMissing) {
+		return Image{}, NoKitError{Repository: repository}
+	} else if err != nil {
 		return Image{}, err
 	}
 	out, err := d.run(ctx, time.Minute, nil, "image", "inspect", latest, "--format",
@@ -113,7 +149,9 @@ func (d Docker) Resolve(ctx context.Context, repository string) (Image, error) {
 		return Image{}, fmt.Errorf("%s: no Hermes version label", latest)
 	}
 	img.Reference = repository + ":" + img.Version
-	if _, err := d.run(ctx, 60*time.Minute, nil, "pull", "--quiet", img.Reference); err != nil {
+	if _, err := d.run(ctx, 60*time.Minute, nil, "pull", "--quiet", img.Reference); errors.Is(err, ErrMissing) {
+		return Image{}, fmt.Errorf("%s names version %s, which the registry does not hold", latest, img.Version)
+	} else if err != nil {
 		return Image{}, err
 	}
 	return img, nil

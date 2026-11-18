@@ -27,11 +27,21 @@ const (
 // fakeDocker answers pull, image inspect, buildx imagetools inspect, login, create, cp and rm
 // like Docker, recording each call. Files in its folder change its answers: inspect (the
 // version labels' line), label (the troupe label), labels (every label, as the registry gives
-// them), fail-ARG1, refuse (401), no-login, and troupe.tar (what cp streams).
+// them), fail-ARG1, refuse (401), missing (no such kit), missing-version, no-login, and
+// troupe.tar (what cp streams).
 const fakeDocker = `#!/bin/sh
 d=$(dirname "$0")
 printf '%s\n' "$*" >> "$d/calls"
 [ -f "$d/refuse" ] && { echo "Error response from daemon: Head \"https://ghcr.io/v2/x\": unauthorized" >&2; exit 1; }
+# What ghcr.io answered a login that may read there, for a kit it does not hold (2026-11-18).
+for last; do :; done
+[ -f "$d/missing" ] && case "$1" in
+  pull) echo "Error response from daemon: failed to resolve reference \"$last\": $last: not found" >&2; exit 1 ;;
+  buildx) echo "ERROR: $4: not found" >&2; exit 1 ;;
+esac
+[ -f "$d/missing-version" ] && [ "$1" = pull ] && case "$last" in *:latest) ;; *) echo "Error response from daemon: failed to resolve reference \"$last\": $last: not found" >&2; exit 1 ;; esac
+# Other failures end in "not found" too: an image with nothing for this machine's platform.
+[ -f "$d/other-not-found" ] && { echo "Error response from daemon: no match for platform in manifest: not found" >&2; exit 1; }
 [ -f "$d/fail-$1" ] && { echo "failed" >&2; exit 1; }
 case "$1" in
   pull) exit 0 ;;
@@ -639,5 +649,62 @@ func TestExtractRefusesAFolderKeptBeforeTheLabel(t *testing.T) {
 	_, err := f.docker().Extract(context.Background(), f.data, image())
 	if err == nil || !strings.Contains(err.Error(), "too old for this troupe") || f.calls() != "" {
 		t.Fatalf("%v, calls %q", err, f.calls())
+	}
+}
+
+// A registry tells a login that may read there when it holds no such kit: that is said plainly,
+// and is never the refusal that asks for a token.
+func TestAMissingKitIsSaidPlainly(t *testing.T) {
+	f := newFake(t)
+	f.set("missing", "")
+	_, err := f.docker().Resolve(context.Background(), "ghcr.io/example/codr")
+	var noKit NoKitError
+	if !errors.As(err, &noKit) || errors.Is(err, ErrAccess) || noKit.Repository != "ghcr.io/example/codr" ||
+		err.Error() != "the registry holds no ghcr.io/example/codr kit" {
+		t.Fatalf("%v", err)
+	}
+	if _, _, err := f.docker().Describe(context.Background(), "ghcr.io/example/codr:latest"); err == nil ||
+		err.Error() != "the registry holds no such kit: check the type's name" {
+		t.Fatalf("%v", err)
+	}
+	// latest naming a version that is not there is the publisher's fault, not a typo. That
+	// version reads like a refusal (403), which a missing reference is never taken for.
+	f = newFake(t)
+	f.set("inspect", "1.403.0 "+hermes)
+	f.set("missing-version", "")
+	if _, err := f.docker().Resolve(context.Background(), repository); err == nil || errors.Is(err, ErrAccess) ||
+		!strings.Contains(err.Error(), "names version 1.403.0, which the registry does not hold") {
+		t.Fatalf("%v", err)
+	}
+}
+
+// Only "REFERENCE: not found" is a missing kit. Docker ends other failures with "not found" too
+// (no image for this platform), and other commands never mean a kit.
+func TestOtherNotFoundFailuresAreNotAMissingKit(t *testing.T) {
+	f := newFake(t)
+	f.set("other-not-found", "")
+	_, err := f.docker().Resolve(context.Background(), repository)
+	var noKit NoKitError
+	if err == nil || errors.As(err, &noKit) || err.Error() != "docker pull failed" {
+		t.Fatalf("%v", err)
+	}
+	if _, _, err := f.docker().Describe(context.Background(), repository+":latest"); err == nil || strings.Contains(err.Error(), "no such kit") {
+		t.Fatalf("%v", err)
+	}
+	for _, c := range []struct {
+		args   []string
+		stderr string
+		want   bool
+	}{
+		{[]string{"pull", "--quiet", "ghcr.io/x/y:latest"}, `Error response from daemon: failed to resolve reference "ghcr.io/x/y:latest": ghcr.io/x/y:latest: not found`, true},
+		{[]string{"buildx", "imagetools", "inspect", "ghcr.io/x/y:latest", "--format", "{{json .}}"}, "ERROR: ghcr.io/x/y:latest: not found\n", true},
+		{[]string{"pull", "--quiet", "ghcr.io/x/y:latest"}, "ghcr.io/x/other:latest: not found", false},
+		{[]string{"pull", "--quiet", "ghcr.io/x/y:latest"}, "content at https://ghcr.io/v2/x/y/blobs/sha256:0 not found: not found", false},
+		{[]string{"image", "inspect", "ghcr.io/x/y:latest"}, "ghcr.io/x/y:latest: not found", false},
+		{[]string{"cp", "0123:/usr/share/troupe", "-"}, "0123:/usr/share/troupe: not found", false},
+	} {
+		if got := missing(c.args, c.stderr); got != c.want {
+			t.Errorf("%v %q: %v", c.args, c.stderr, got)
+		}
 	}
 }
