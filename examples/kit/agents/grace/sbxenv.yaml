@@ -13,4 +13,4 @@ sandboxOptions:
 secrets:
   provider:
     command: cat /run/credentials/grace-provider
-    refresh: on-demand
+    refresh: 5m

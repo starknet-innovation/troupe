@@ -401,7 +401,7 @@ func Write(data string, a Agent) (string, error) {
 		}
 		env.WriteString("\nsecrets:\n")
 		for _, n := range a.Natives {
-			fmt.Fprintf(&env, "  %s:\n    command: %s\n    refresh: on-demand\n", n.Name, n.Command)
+			fmt.Fprintf(&env, "  %s:\n    command: %s\n    refresh: %s\n", n.Name, n.Command, sbx.KeyRefresh)
 		}
 	}
 	services := a.Services

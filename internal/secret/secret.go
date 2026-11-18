@@ -1,7 +1,7 @@
 // Package secret keeps each agent's API keys on the host, as strongly as the machine allows
 // (see Tier), and gives the agent's sandbox access to them. A key is never shown, printed or
-// logged: sandboxd reads it on demand and its proxy injects it, so the agent itself only ever
-// sees a placeholder.
+// logged: sandboxd reads it with a command (see sbx.KeyRefresh for how often) and its proxy
+// injects it, so the agent itself only ever sees a placeholder.
 package secret
 
 import (
@@ -310,7 +310,8 @@ func (s *Store) File(svc Service) string {
 }
 func (s *Store) Name(svc Service) string { return s.Agent + "-" + svc.Name }
 
-// Command is how sandboxd reads the key on demand, as the host user.
+// Command is how sandboxd reads the key, as the host user, each time its copy runs out
+// (sbx.KeyRefresh).
 func (s *Store) Command(svc Service) string {
 	if s.tier() == File {
 		return "cat " + s.File(svc)
@@ -603,13 +604,13 @@ func (s *Store) wire(ctx context.Context, svc Service) (wired, newService bool, 
 func (s *Store) setRecord(ctx context.Context, svc Service) error {
 	// --force: rewiring overwrites the agent's own record. set-custom overwrites without asking
 	// and has no --force (measured on sbx 0.48.0).
-	args := []string{"secret", "set", svc.Name, "--sandbox", s.Agent, "--command", s.Command(svc), "--refresh", "on-demand", "--force"}
+	args := []string{"secret", "set", svc.Name, "--sandbox", s.Agent, "--command", s.Command(svc), "--refresh", sbx.KeyRefresh, "--force"}
 	if svc.Placeholder {
 		args = []string{"secret", "set-custom", "--sandbox", s.Agent, "--env", svc.Env, "--placeholder", svc.Value}
 		for _, host := range svc.Hosts {
 			args = append(args, "--host", host)
 		}
-		args = append(args, "--command", s.Command(svc), "--refresh", "on-demand")
+		args = append(args, "--command", s.Command(svc), "--refresh", sbx.KeyRefresh)
 	}
 	_, err := s.Runner.Output(ctx, sbx.Call{Args: args, Timeout: 60 * time.Second})
 	return err

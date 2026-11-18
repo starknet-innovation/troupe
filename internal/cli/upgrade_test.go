@@ -72,7 +72,7 @@ func TestAnUpgradeRefusesAKeyItCannotAdd(t *testing.T) {
 	folder, kit := filepath.Join(h, "agent"), filepath.Join(h, "kit")
 	os.MkdirAll(folder, 0o700)
 	os.MkdirAll(kit, 0o700)
-	os.WriteFile(filepath.Join(folder, "sbxenv.yaml"), []byte("name: jane\nkits:\n  - \"x\"\n  - \".\"\n\nsecrets:\n  venice:\n    command: c\n    refresh: on-demand\n"), 0o600)
+	os.WriteFile(filepath.Join(folder, "sbxenv.yaml"), []byte("name: jane\nkits:\n  - \"x\"\n  - \".\"\n\nsecrets:\n  venice:\n    command: c\n    refresh: 5m\n"), 0o600)
 	for services, want := range map[string]string{
 		`{"services":[{"name":"venice","prompt":"V","help":"The provider key, from its site.","required":true,"delivery":"native","domains":["api.venice.ai"]},{"name":"search","prompt":"S","help":"A search key, from its site.","required":true,"delivery":"native","domains":["api.search.example"]}]}`: "requires a search key",
 		`{"services":[{"name":"slack-bot","prompt":"B","required":true,"slack":true,"delivery":"placeholder","env":"SLACK_BOT_TOKEN","hosts":["slack.com"],"placeholder":"sbx-cs-{agent}-slack-bot"}]}`:                                                                                                     "requires a slack-bot key",

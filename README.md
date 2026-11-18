@@ -217,6 +217,16 @@ question. Each tier accepts only its own file format, so a weaker file never sta
 stronger agent's key. In every tier, anything running as your user, or as root, can read the
 keys: the TPM protects against a copied disk, not against this machine's own accounts.
 
+In every tier, sandboxd reads a key when an agent first needs it and goes on using its copy
+for five minutes, then reads it again on the next request. It does not read it for every
+request: a TPM unseals one key at a time for the whole machine, about a second each, so
+agents working at once would wait on each other. That copy lives in sandboxd's memory, not
+in a file troupe or sbx writes; memory can still reach swap or a crash dump, which the "copy
+of the disk" column does not cover. A key you rotate with `troupe secret set` reaches a
+running agent within five minutes: keep the old key valid at the provider until then. A
+leaked key is the opposite case: revoke it at the provider at once, and the agent's requests
+fail until it has the new one.
+
 ## Security model
 
 Each agent fully controls its own VM, so everything that comes out of one is untrusted:

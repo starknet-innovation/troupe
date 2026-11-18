@@ -55,6 +55,16 @@ type Call struct {
 // that returns files (update read) sets its own.
 const MaxAnswer = 1 << 20
 
+// KeyRefresh is how long sandboxd keeps a key it has read before it runs the key's command
+// again, on the next request that needs it. With "on-demand" sandboxd ran the command for
+// every request to a host it injects a key into, and a TPM unseals one key at a time for the
+// whole machine: about 1.3 s on every model request, and agents calling at once waited on
+// each other (six of them doubled each request). The price is that sandboxd holds the key in
+// memory for at least this long, and that a rotated key reaches a running agent only when
+// the period ends: writing the record again, as `secret set` does, does not replace the copy
+// sandboxd holds (measured on sbx 0.54.0).
+const KeyRefresh = "5m"
+
 // ErrTooLarge means a call's stdout passed its limit, so the call was stopped: the VM on the
 // other end is the agent's and must not be able to fill the host's memory or disk.
 var ErrTooLarge = errors.New("sbx output larger than allowed")

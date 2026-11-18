@@ -248,7 +248,8 @@ func TestWriteMakesTheAgentsFolder(t *testing.T) {
 	env := read("sbxenv.yaml")
 	for _, want := range []string{"name: jane\n", "agent: hermes\n", `  - "` + reference + `"` + "\n  - \".\"\n",
 		"  cpus: 4\n  memory: 6g\n", "  venice:\n    apiKey:\n      domains:\n        - api.venice.ai\n",
-		"  venice:\n    command: systemd-creds decrypt /x -\n    refresh: on-demand\n"} {
+		// Five minutes, never on-demand: that ran the TPM for every request (sbx.KeyRefresh).
+		"  venice:\n    command: systemd-creds decrypt /x -\n    refresh: 5m\n"} {
 		if !strings.Contains(env, want) {
 			t.Fatalf("sbxenv.yaml lacks %q:\n%s", want, env)
 		}

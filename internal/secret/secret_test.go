@@ -148,7 +148,7 @@ func TestSetStoresWiresAndNeverShowsTheSecret(t *testing.T) {
 			t.Fatalf("%s mode %v", dir, info.Mode().Perm())
 		}
 	}
-	if !strings.Contains(h.read("calls"), "sbx secret set venice --sandbox ada --command systemd-creds --user --no-ask-password --name=ada-venice decrypt "+file+" -") {
+	if !strings.Contains(h.read("calls"), "sbx secret set venice --sandbox ada --command systemd-creds --user --no-ask-password --name=ada-venice decrypt "+file+" - --refresh 5m --force") {
 		t.Fatalf("wiring:\n%s", h.read("calls"))
 	}
 	for _, place := range []string{h.read("calls"), h.read("native.log"), h.out.String()} {
@@ -169,6 +169,12 @@ func TestPlaceholderServiceIsWiredAsACustomSecret(t *testing.T) {
 	}
 	if !strings.Contains(h.read("calls"), "sbx secret set-custom --sandbox ada --env SLACK_BOT_TOKEN --placeholder sbx-cs-ada-slack-bot --host slack.com --command") {
 		t.Fatalf("calls:\n%s", h.read("calls"))
+	}
+	// A placeholder key is kept for five minutes like a native one, never read for every request.
+	for _, line := range strings.Split(h.read("calls"), "\n") {
+		if strings.Contains(line, "secret set-custom") && !strings.HasSuffix(strings.TrimSpace(line), " --refresh 5m") {
+			t.Fatalf("placeholder wiring: %s", line)
+		}
 	}
 }
 
@@ -479,7 +485,7 @@ func TestFileTierKeepsAPlainFileOnlyItsOwnerCanRead(t *testing.T) {
 	if strings.Contains(calls, "sudo") || strings.Contains(calls, "systemd-creds") {
 		t.Fatalf("calls:\n%s", calls)
 	}
-	if !strings.Contains(calls, "sbx secret set venice --sandbox ada --command cat "+file+" --refresh") {
+	if !strings.Contains(calls, "sbx secret set venice --sandbox ada --command cat "+file+" --refresh 5m --force") {
 		t.Fatalf("wiring:\n%s", calls)
 	}
 	for _, place := range []string{calls, h.read("native.log"), h.out.String()} {

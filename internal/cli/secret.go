@@ -25,6 +25,7 @@ var secretHelp = help.Render(help.Command{
 	Notes: []string{
 		"set asks for sudo. No command ever shows a key.",
 		"A new service (not a rotated key) needs a sandboxd restart, which stops every VM.",
+		"A rotated key reaches a running agent within five minutes: revoke the old one after that.",
 	},
 })
 
@@ -113,7 +114,8 @@ func secretCommand(e env, args []string) int {
 		printer.Print("secret "+service, progress.Action,
 			"This service is new to the running sandbox: it is used only after sandboxd restarts, which stops every VM on the host")
 	default:
-		printer.Print("secret "+service, progress.OK, "Stored and wired; the running sandbox uses the new key on its next request")
+		// sandboxd keeps the key it last read for sbx.KeyRefresh, also after the record is written again.
+		printer.Print("secret "+service, progress.OK, "Stored and wired; the running sandbox uses the new key within five minutes, so keep the old one valid until then")
 	}
 	return 0
 }
